@@ -1,0 +1,26 @@
+# Python environment
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local Database & Config
+db_config.json
+*.db
+*.sqlite3
+
+# Logs and Debug files
+*.log
+debug_log.txt
+output.txt
+output.log
+startup_error.txt
+
+# Exported Reports
+exports/
+*.xlsx
+*.csv
+
+# IDE specific files
+.vscode/
+.idea/
