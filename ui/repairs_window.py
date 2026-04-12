@@ -1,11 +1,12 @@
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from database.db_handler import connect_db, update_repair_status
+from database.db_handler import connect_db, update_repair_status, get_all_repairs
 from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QLineEdit, QInputDialog, QDialog, QFormLayout, QPushButton,
                              QTableWidget, QTableWidgetItem, QComboBox, QHBoxLayout, QHeaderView, QLabel, QApplication, QStyledItemDelegate, QStyle, QMessageBox, QAbstractItemView)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
+from utils.shared import RowHoverDelegate
 
 class StatusUpdateDialog(QDialog):
     def __init__(self, repair_id, current_status, parent=None):
@@ -13,10 +14,10 @@ class StatusUpdateDialog(QDialog):
         self.setWindowTitle(f"Update Repair ID: {repair_id}")
         self.setFixedSize(350, 200)
         self.setStyleSheet("""
-            QDialog { background-color: #f4f7f6; font-family: 'Segoe UI'; }
+            QDialog {  font-family: 'Segoe UI'; }
             QLineEdit, QComboBox { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-            QPushButton { background-color: #1b4d89; color: white; padding: 10px; border-radius: 4px; font-weight: bold; }
-            QPushButton:hover { background-color: #00a3af; }
+            QPushButton { background-color: #3B82F6; color: white; padding: 10px; border-radius: 4px; font-weight: bold; }
+            QPushButton:hover { background-color: #10B981; }
         """)
         
         layout = QVBoxLayout(self)
@@ -65,16 +66,6 @@ class StatusUpdateDialog(QDialog):
                 self.cost_input.text().strip(), 
                 self.spent_input.text().strip())
 
-class RowHoverDelegate(QStyledItemDelegate):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.hovered_row = -1
-
-    def paint(self, painter, option, index):
-        if index.row() == self.hovered_row and not (option.state & QStyle.StateFlag.State_Selected):
-            painter.fillRect(option.rect, QColor("#dfe6e9")) # Metal light grey
-        super().paint(painter, option, index)
-
 class RepairsWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -84,13 +75,13 @@ class RepairsWindow(QMainWindow):
         # Professional CSS Styling
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #f4f7f6;
+                
             }
             QLineEdit {
                 padding: 12px;
                 border: 2px solid #dfe6e9;
                 border-radius: 8px;
-                background-color: white;
+                
                 font-size: 14px;
                 color: #2d3436;
             }
@@ -101,7 +92,7 @@ class RepairsWindow(QMainWindow):
                 padding: 10px;
                 border: 2px solid #dfe6e9;
                 border-radius: 8px;
-                background-color: white;
+                
                 min-width: 150px;
                 font-size: 14px;
             }
@@ -110,7 +101,7 @@ class RepairsWindow(QMainWindow):
             }
             QTableWidget {
                 border: 1px solid #dfe6e9;
-                background-color: white;
+                
                 font-family: 'Segoe UI';
                 font-size: 14px;
                 color: #2d3436;
@@ -119,7 +110,7 @@ class RepairsWindow(QMainWindow):
                 outline: none;
             }
             QHeaderView::section {
-                background-color: #1b4d89;
+                background-color: #3B82F6;
                 padding: 12px;
                 border: none;
                 font-weight: bold;
@@ -132,7 +123,7 @@ class RepairsWindow(QMainWindow):
                 border-bottom: 1px solid #f1f2f6;
             }
             QTableWidget::item:selected {
-                background-color: #00a3af;
+                background-color: #10B981;
                 color: white;
             }
             QTableWidget::item:hover {
@@ -222,33 +213,7 @@ class RepairsWindow(QMainWindow):
 
     def load_repairs(self, query="", status="All"):
         try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            sql = "SELECT id, customer_name, item_name, Issue, estimated_cost, final_cost, exp_date, status FROM Repairs WHERE shop_id = %s"
-            params = [__import__('database.db_handler', fromlist=['CURRENT_SHOP_ID']).CURRENT_SHOP_ID]
-            
-            if status != "All":
-                sql += " AND status = %s"
-                params.append(status)
-            else:
-                sql += " AND status IN ('Pending', 'Completed')"
-
-            if query:
-                clean_query = query
-                if query.startswith("JOB_ID:"):
-                    try:
-                        clean_query = query.split("|")[0].split(":")[1]
-                    except: pass
-                
-                if clean_query.isdigit():
-                    sql += " AND (id = %s OR customer_name LIKE %s OR item_name LIKE %s)"
-                    params.extend([int(clean_query), '%'+clean_query+'%', '%'+clean_query+'%'])
-                else:
-                    sql += " AND (customer_name LIKE %s OR item_name LIKE %s)"
-                    params.extend(['%'+clean_query+'%', '%'+clean_query+'%'])
-            cursor.execute(sql, tuple(params))
-            rows = cursor.fetchall()
-            conn.close()
+            rows = get_all_repairs(query, status)
             
             self.table.setRowCount(0)
             for row_data in rows:

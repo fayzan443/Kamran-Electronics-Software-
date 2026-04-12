@@ -26,15 +26,15 @@ class ProductsWindow(QMainWindow):
         # Professional CSS Styling
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #f4f7f6;
+                
             }
             QWidget#MainContainer {
-                background-color: white;
+                
                 border-radius: 12px;
             }
             QTableWidget {
                 border: 1px solid #dfe6e9;
-                background-color: white;
+                
                 font-family: 'Segoe UI';
                 font-size: 14px;
                 color: #2d3436;
@@ -47,7 +47,7 @@ class ProductsWindow(QMainWindow):
                 border-bottom: 1px solid #f1f2f6;
             }
             QTableWidget::item:selected {
-                background-color: #00a3af;
+                background-color: #10B981;
                 color: white;
             }
             QTableWidget::item:hover {
@@ -55,7 +55,7 @@ class ProductsWindow(QMainWindow):
                 color: #2d3436;
             }
             QHeaderView::section {
-                background-color: #1b4d89;
+                background-color: #3B82F6;
                 padding: 12px;
                 border: none;
                 font-weight: bold;
@@ -67,7 +67,7 @@ class ProductsWindow(QMainWindow):
                 padding: 12px;
                 border: 2px solid #dfe6e9;
                 border-radius: 10px;
-                background-color: white;
+                
                 font-size: 14px;
                 color: #2d3436;
                 margin-bottom: 10px;

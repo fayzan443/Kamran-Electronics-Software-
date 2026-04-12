@@ -91,6 +91,7 @@ class LoginForm(QDialog):
         """)
         user_layout.addWidget(user_lbl)
         user_layout.addWidget(self.user_input)
+        self.user_input.returnPressed.connect(self.handle_login)
         layout.addLayout(user_layout)
         
         # Password
@@ -117,6 +118,7 @@ class LoginForm(QDialog):
         """)
         pwd_layout.addWidget(pwd_lbl)
         pwd_layout.addWidget(self.pwd_input)
+        self.pwd_input.returnPressed.connect(self.handle_login)
         layout.addLayout(pwd_layout)
         
         layout.addSpacing(10)

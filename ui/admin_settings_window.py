@@ -31,7 +31,7 @@ class AdminSettingsView(QWidget):
         self.back_btn.clicked.connect(self.back_clicked.emit)
         
         title_label = QLabel("🛡️ System Administration & Settings")
-        title_label.setStyleSheet("color: #1b4d89; font-size: 28px; font-weight: 800; font-family: 'Segoe UI';")
+        title_label.setStyleSheet("color: #60A5FA; font-size: 28px; font-weight: 800; font-family: 'Segoe UI';")
         
         header_layout.addWidget(self.back_btn)
         header_layout.addSpacing(20)
@@ -93,11 +93,11 @@ class AdminSettingsView(QWidget):
         layout.setSpacing(25)
         
         token_frame = QFrame()
-        token_frame.setStyleSheet("background-color: #f8f9fa; border-radius: 15px; padding: 20px;")
+        token_frame.setStyleSheet(" border-radius: 15px; padding: 20px;")
         token_layout = QVBoxLayout(token_frame)
         
         token_title = QLabel("🔑 MASTER RECOVERY TOKEN")
-        token_title.setStyleSheet("font-weight: bold; color: #1b4d89; font-size: 16px;")
+        token_title.setStyleSheet("font-weight: bold; color: #60A5FA; font-size: 16px;")
         
         desc = QLabel("Keep this token safe. It is required for account recovery if security questions are disabled.")
         desc.setStyleSheet("color: #636e72; font-size: 12px;")
@@ -190,7 +190,7 @@ class AdminSettingsView(QWidget):
     def show_toast(self, message):
         toast = QLabel(message, self)
         toast.setStyleSheet("""
-            background-color: #1b4d89;
+            background-color: #3B82F6;
             color: white;
             padding: 15px 30px;
             border-radius: 20px;

@@ -5,10 +5,14 @@ from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QLineEdit,
                              QLabel, QHBoxLayout, QHeaderView, QFrame, 
                              QGraphicsDropShadowEffect, QApplication, QMessageBox,
                              QDialog, QListWidget)
-from PyQt6.QtCore import Qt, QDateTime, pyqtSignal, QTimer, QRect, QSizeF, QRectF
+from PyQt6.QtCore import Qt, QDateTime, pyqtSignal, QTimer, QRect, QRectF, QThread
 from PyQt6.QtGui import QColor, QFont, QPainter, QPageSize
 from PyQt6.QtPrintSupport import QPrintPreviewDialog, QPrinter
-import winsound
+try:
+    import winsound
+    WINSOUND_AVAILABLE = True
+except ImportError:
+    WINSOUND_AVAILABLE = False
 from PyQt6.QtWidgets import QToolTip
 
 # database folder se import karein
@@ -17,7 +21,6 @@ from database.db_handler import (get_product_by_id, get_repair_by_id, save_bill,
                              search_completed_repairs, search_products_advanced,
                              get_all_product_names, fetch_item_by_barcode)
 from ui.styles import STYLE_SHEET
-from PyQt6.QtCore import QThread, pyqtSignal
 
 class SearchWorker(QThread):
     results_found = pyqtSignal(list, str) # results, search_context
@@ -100,7 +103,7 @@ class NewBillWindow(QMainWindow):
         scan_layout.setContentsMargins(20, 20, 20, 20)
         
         scan_title = QLabel("🔍 SEARCH ITEM (NAME / CATEGORY / ID)")
-        scan_title.setStyleSheet("font-weight: bold; color: #1B4D89; font-size: 13px;")
+        scan_title.setStyleSheet("font-weight: bold; color: #60A5FA; font-size: 13px;")
         
         scan_h_layout = QHBoxLayout()
         
@@ -118,12 +121,11 @@ class NewBillWindow(QMainWindow):
                 border: 2px solid #dfe6e9;
                 border-radius: 10px;
                 font-size: 16px;
-                background-color: #fafbfc;
+                
             }
-            QLineEdit:focus { border: 2px solid #00a3af; background-color: white; }
+            QLineEdit:focus { border: 2px solid #00a3af;  }
         """)
         self.scan_input.returnPressed.connect(self.handle_search_and_add)
-        self.scan_input.setStyleSheet("") # Clear local override to use global QSS
         
         # Quantity Input
         self.qty_input = QLineEdit()
@@ -136,14 +138,13 @@ class NewBillWindow(QMainWindow):
                 border: 2px solid #dfe6e9;
                 border-radius: 10px;
                 font-size: 16px;
-                background-color: #fafbfc;
+                
                 font-weight: bold;
                 text-align: center;
             }
-            QLineEdit:focus { border: 2px solid #00a3af; background-color: white; }
+            QLineEdit:focus { border: 2px solid #00a3af;  }
         """)
         self.qty_input.returnPressed.connect(self.add_item_from_qty)
-        self.qty_input.setStyleSheet("")
         
         # Add Button
         self.add_btn = QPushButton("➕ ADD")
@@ -151,7 +152,7 @@ class NewBillWindow(QMainWindow):
         self.add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.add_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1b4d89;
+                background-color: #3B82F6;
                 color: white;
                 font-weight: bold;
                 font-size: 14px;
@@ -186,12 +187,11 @@ class NewBillWindow(QMainWindow):
                 border: 2px solid #dfe6e9;
                 border-radius: 10px;
                 font-size: 15px;
-                background-color: #f1f3f5;
+                
             }
-            QLineEdit:focus { border: 2px solid #1b4d89; background-color: white; }
+            QLineEdit:focus { border: 1px solid #3B82F6;  }
         """)
         self.repair_input.returnPressed.connect(self.search_repairs)
-        self.repair_input.setStyleSheet("")
         
         scan_layout.addWidget(repair_title)
         scan_layout.addWidget(self.repair_input)
@@ -216,14 +216,14 @@ class NewBillWindow(QMainWindow):
         bottom_layout = QHBoxLayout()
         
         self.total_label = QLabel("Total: Rs. 0.00")
-        self.total_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #1b4d89;")
+        self.total_label.setStyleSheet("font-size: 28px; font-weight: bold; color: #60A5FA;")
         
         self.print_btn = QPushButton("🖨️ PRINT BILL")
         self.print_btn.setFixedHeight(60)
         self.print_btn.setFixedWidth(250)
         self.print_btn.setStyleSheet("""
             QPushButton {
-                background-color: #00a3af;
+                background-color: #10B981;
                 color: white;
                 font-weight: bold;
                 font-size: 18px;
@@ -351,10 +351,6 @@ class NewBillWindow(QMainWindow):
                 self.repair_popup.hide()
 
 
-    def update_search_results(self, text):
-        # (This block is redundant, replaced by Worker pattern)
-        pass
-
     def handle_search_and_add(self):
         """Intelligent search: Fetches product and moves focus to Qty field."""
         if self.search_popup.isVisible():
@@ -438,7 +434,8 @@ class NewBillWindow(QMainWindow):
             self.barcode_buffer = "" 
         else:
             # Play Beep and show tooltip
-            winsound.Beep(1000, 300)
+            if WINSOUND_AVAILABLE:
+                winsound.Beep(1000, 300)
             QToolTip.showText(self.scan_input.mapToGlobal(self.scan_input.rect().center()), 
                              "❌ Item Not Found!", self.scan_input, QRect(), 2000)
             self.scan_input.clear()
@@ -567,9 +564,6 @@ class NewBillWindow(QMainWindow):
             name = self.customer_input.text() or "Walk-in Customer"
             total = sum(item[2] * item[3] for item in self.bill_items)
             
-            # Save to Database
-            save_bill(name, total, self.bill_items)
-            
             # Open Print Preview
             printer = QPrinter(QPrinter.PrinterMode.ScreenResolution)
             preview = QPrintPreviewDialog(printer, self)
@@ -577,6 +571,7 @@ class NewBillWindow(QMainWindow):
             
             # Use DialogCode.Accepted (or 1) to check if print was clicked
             if preview.exec() == QPrintPreviewDialog.DialogCode.Accepted:
+                save_bill(name, total, self.bill_items)
                 self.table.setRowCount(0)
                 self.bill_items = []
                 self.customer_input.clear()
@@ -679,14 +674,16 @@ class NewBillWindow(QMainWindow):
 
 class SearchPopup(QFrame):
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        # Changed Popup to ToolTip to prevent focus grabbing
+        super().__init__(parent, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.main_window = parent
         self.results = []
         
         # Premium Styling
         self.setStyleSheet("""
             QFrame {
-                background-color: white;
+                
                 border: 1px solid #dfe6e9;
                 border-radius: 12px;
             }
@@ -717,6 +714,7 @@ class SearchPopup(QFrame):
         
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus) # Don't take focus from main input
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -725,15 +723,15 @@ class SearchPopup(QFrame):
         self.table.setStyleSheet("""
             QTableWidget {
                 border: none;
-                background-color: white;
+                
                 font-size: 14px;
-                alternate-background-color: #f8f9fa;
-                selection-background-color: #1b4d89;
+                alternate-
+                selection-background-color: #3B82F6;
                 selection-color: white;
                 border-radius: 8px;
             }
             QHeaderView::section {
-                background-color: #f1f3f5;
+                
                 padding: 8px;
                 font-weight: bold;
                 border: none;
@@ -774,8 +772,8 @@ class SearchPopup(QFrame):
             for i in range(5):
                 self.table.item(row, i).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        if results:
-            self.table.selectRow(0)
+        # if results:
+        #     self.table.selectRow(0)
         self.table.blockSignals(False)
 
     def move_selection(self, delta):
@@ -795,12 +793,14 @@ class SearchPopup(QFrame):
 
 class RepairSearchPopup(QFrame):
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        # Changed Popup to ToolTip to prevent focus grabbing
+        super().__init__(parent, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.main_window = parent
         self.results = []
         
         self.setStyleSheet("""
-            QFrame { background-color: white; border: 1px solid #1b4d89; border-radius: 12px; }
+            QFrame {  border: 1px solid #3B82F6; border-radius: 12px; }
         """)
         
         self.shadow = QGraphicsDropShadowEffect()
@@ -818,11 +818,12 @@ class RepairSearchPopup(QFrame):
         
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(False)
+        self.table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setStyleSheet("""
             QTableWidget { border: none; font-size: 14px; }
-            QHeaderView::section { background-color: #f1f3f5; font-weight: bold; border: none; }
+            QHeaderView::section {  font-weight: bold; border: none; }
         """)
         
         layout.addWidget(self.table)
@@ -844,8 +845,8 @@ class RepairSearchPopup(QFrame):
             for i in range(4):
                 self.table.item(row, i).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        if results:
-            self.table.selectRow(0)
+        # if results:
+        #     self.table.selectRow(0)
 
     def move_selection(self, delta):
         curr = self.table.currentRow()
@@ -870,7 +871,7 @@ class ProductSelectionDialog(QDialog):
         layout = QVBoxLayout(self)
         self.list_widget = QListWidget()
         for p in items:
-            item_text = f"{p[2]} | {p[3]} | Rs. {p[5]:,.0f}"
+            item_text = f"ID: {p[0]} | {p[3]} | {p[4]} | Rs. {p[6]:,.0f}"
             self.list_widget.addItem(item_text)
             
         layout.addWidget(QLabel("Multiple matches found. Please select correct item:"))

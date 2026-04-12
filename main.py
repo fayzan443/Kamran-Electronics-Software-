@@ -40,11 +40,6 @@ def main():
         window = MainWindow() 
         window.show()
         
-        try:
-            window.load_initial_data()
-        except:
-            pass
-            
         print("Application is running.")
         sys.exit(app.exec())
 

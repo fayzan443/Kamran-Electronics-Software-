@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from ui.styles import STYLE_SHEET
-
+from utils.report_generator import generate_daily_report
 class ExpenseDialog(QDialog):
     data_updated = pyqtSignal()
     
@@ -159,6 +159,7 @@ class AdminDashboard(QMainWindow):
         self.nav_home.clicked.connect(lambda: self.switch_view(0, self.nav_home))
         
         self.nav_history = QPushButton("📜 History")
+        self.nav_history.clicked.connect(lambda: self.switch_view(3, self.nav_history))
         self.nav_report = QPushButton("📊 Report")
         self.nav_report.clicked.connect(self.handle_export)
         
@@ -217,6 +218,12 @@ class AdminDashboard(QMainWindow):
         self.settings_view.back_clicked.connect(lambda: self.switch_view(0, self.nav_home))
         self.settings_view.settings_saved.connect(self.settings_updated.emit)
         self.stack.addWidget(self.settings_view) # Index 2
+        
+        # History View Placeholder
+        self.history_view = QWidget()
+        history_layout = QVBoxLayout(self.history_view)
+        history_layout.addWidget(QLabel("History View - Coming Soon", alignment=Qt.AlignmentFlag.AlignCenter))
+        self.stack.addWidget(self.history_view) # Index 3
         
         self.main_layout.addWidget(self.stack)
         
@@ -707,6 +714,14 @@ class AdminDashboard(QMainWindow):
             try:
                 self.export_data_to_excel(report_df, filename)
                 QMessageBox.information(self, "Export Successful", f"Report saved to:\n{filename}")
+                
+                try:
+                    from datetime import datetime
+                    pdf_path = generate_daily_report(datetime.now().strftime("%Y-%m-%d"))
+                    QMessageBox.information(self, "PDF Report", f"PDF Report also saved to: {pdf_path}")
+                except Exception as e:
+                    print(f"PDF Gen failed: {e}")
+                    
             except Exception as e:
                 QMessageBox.critical(self, "Export Failed", f"Error saving report: {e}")
 

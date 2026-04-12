@@ -21,7 +21,7 @@ class AddStockWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Add New Stock")
         self.setFixedSize(600, 850)
-        self.setStyleSheet("background-color: #f4f7f6;")
+        self.setStyleSheet("")
         
         # Main Layout
         self.central_widget = QWidget()
@@ -33,7 +33,7 @@ class AddStockWindow(QMainWindow):
         self.card = QFrame()
         self.card.setStyleSheet("""
             QFrame {
-                background-color: white;
+                
                 border-radius: 20px;
             }
         """)
@@ -52,7 +52,7 @@ class AddStockWindow(QMainWindow):
         
         # Title
         title = QLabel("📦 Add New Product Stock")
-        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #1b4d89; margin-bottom: 10px;")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #60A5FA; margin-bottom: 10px;")
         self.card_layout.addWidget(title)
         
         # Styles for Inputs
@@ -61,12 +61,12 @@ class AddStockWindow(QMainWindow):
                 padding: 12px;
                 border: 2px solid #dfe6e9;
                 border-radius: 10px;
-                background-color: #fafbfc;
+                
                 font-size: 14px;
             }
             QLineEdit:focus {
                 border: 2px solid #00a3af;
-                background-color: white;
+                
             }
         """
         
@@ -107,14 +107,14 @@ class AddStockWindow(QMainWindow):
         self.save_btn.setFixedHeight(50)
         self.save_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1b4d89;
+                background-color: #3B82F6;
                 color: white;
                 font-weight: bold;
                 font-size: 16px;
                 border-radius: 10px;
                 margin-top: 10px;
             }
-            QPushButton:hover { background-color: #00a3af; }
+            QPushButton:hover { background-color: #10B981; }
         """)
         self.save_btn.clicked.connect(self.save_product)
         self.card_layout.addWidget(self.save_btn)
@@ -122,7 +122,7 @@ class AddStockWindow(QMainWindow):
         # --- BARCODE AREA ---
         self.barcode_frame = QFrame()
         self.barcode_frame.setFixedHeight(180)
-        self.barcode_frame.setStyleSheet("background-color: #f8f9fa; border-radius: 10px; border: 1px dashed #b2bec3;")
+        self.barcode_frame.setStyleSheet(" border-radius: 10px; border: 1px dashed #b2bec3;")
         barcode_layout = QVBoxLayout(self.barcode_frame)
         
         self.barcode_label = QLabel("Barcode Preview")
@@ -196,7 +196,7 @@ class AddStockWindow(QMainWindow):
             
             # Display Barcode
             self.barcode_label.setPixmap(self.generated_barcode_pixmap.scaled(self.barcode_frame.width()-40, 140, Qt.AspectRatioMode.KeepAspectRatio))
-            self.barcode_label.setStyleSheet("border: none; background-color: white; padding: 10px;")
+            self.barcode_label.setStyleSheet("border: none;  padding: 10px;")
             
             # Enable Print
             self.print_btn.setEnabled(True)

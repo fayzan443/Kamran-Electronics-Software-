@@ -1,1 +1,1 @@
-# Utility package for Kamran and Sohail Electronics
+from utils.shared import RowHoverDelegate, TIME_RANGES

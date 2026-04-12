@@ -11,10 +11,10 @@ class DBSetupDialog(QDialog):
         self.setWindowTitle("Database Configuration")
         self.setFixedSize(350, 200)
         self.setStyleSheet("""
-            QDialog { background-color: #f4f7f6; font-family: 'Segoe UI'; }
+            QDialog {  font-family: 'Segoe UI'; }
             QLineEdit { padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
-            QPushButton { background-color: #1b4d89; color: white; padding: 10px; border-radius: 4px; font-weight: bold; }
-            QPushButton:hover { background-color: #00a3af; }
+            QPushButton { background-color: #3B82F6; color: white; padding: 10px; border-radius: 4px; font-weight: bold; }
+            QPushButton:hover { background-color: #10B981; }
         """)
         
         layout = QVBoxLayout(self)

@@ -4,7 +4,10 @@ import hashlib
 import json
 import secrets
 from ui.db_setup_dialog import get_db_config
-
+from utils.shared import TIME_RANGES
+import pandas as pd
+from datetime import datetime
+from openpyxl.styles import Font, PatternFill, Alignment
 CURRENT_SHOP_ID = 1
 
 def set_shop_id(shop_id):
@@ -266,12 +269,12 @@ def add_product(name, category, p_price, s_price, qty, min_limit):
         if existing_product:
             product_id, curr_qty, curr_p_price = existing_product
             total_qty = curr_qty + qty
-            avg_p_price = ((curr_qty * curr_p_price) + (qty * p_price)) / total_qty if total_qty > 0 else p_price
-                
+            
+            # Updated Logic: Use new price for all stock (Latest Price logic) instead of averaging
             cursor.execute("""UPDATE Products 
                               SET Stock_Qty = %s, Purchase_Price = %s, Selling_Price = %s 
                               WHERE Product_ID = %s AND Shop_ID = %s""", 
-                           (total_qty, round(avg_p_price, 2), s_price, product_id, CURRENT_SHOP_ID))
+                           (total_qty, p_price, s_price, product_id, CURRENT_SHOP_ID))
         else:
             cursor.execute("""INSERT INTO Products (Shop_ID, Name, Category, Purchase_Price, Selling_Price, Stock_Qty, Min_Limit) 
                               VALUES (%s, %s, %s, %s, %s, %s, %s)""", 
@@ -462,8 +465,9 @@ def get_bill_history(query=None):
     conn = connect_db()
     cursor = conn.cursor()
     try:
+        # Order: Customer Name, Type, Description, Total, Timestamp
         sql = """
-        SELECT b.Timestamp, b.Customer_Name, bi.Description, bi.Type, b.Total_Amount
+        SELECT b.Customer_Name, bi.Type, bi.Description, b.Total_Amount, b.Timestamp
         FROM Bills b
         JOIN Bill_Items bi ON b.Bill_ID = bi.Bill_ID
         WHERE b.Shop_ID = %s
@@ -518,24 +522,6 @@ def cleanup_database_automated():
             END
         """)
         
-        # 4. Security: REVOKE DELETE permissions from the current user on the Bills table.
-        # This ensures deletions only happen via the automated Event Scheduler.
-        try:
-            # Get current username for the REVOKE command
-            cursor.execute("SELECT SUBSTRING_INDEX(USER(), '@', 1), SUBSTRING_INDEX(USER(), '@', -1)")
-            user_info = cursor.fetchone()
-            if user_info:
-                u_name, u_host = user_info
-                # Attempt to revoke DELETE. This may fail if user isn't root or lacks GRANT, so we catch it.
-                try:
-                    cursor.execute(f"REVOKE DELETE ON `kamran & sohail electronics`.Bills FROM '{u_name}'@'{u_host}'")
-                    cursor.execute(f"REVOKE DELETE ON `kamran & sohail electronics`.Bill_Items FROM '{u_name}'@'{u_host}'")
-                    cursor.execute("FLUSH PRIVILEGES")
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
         conn.commit()
     except Exception:
         pass
@@ -659,12 +645,11 @@ def get_recent_transactions(limit=10):
         conn.close()
 
 def get_filtered_stats(time_period):
-    ranges = {
-        'Today': "CURDATE()",
-        'Last Week': "NOW() - INTERVAL 7 DAY",
-        'Last Month': "NOW() - INTERVAL 30 DAY"
-    }
+    ranges = TIME_RANGES
     start_time = ranges.get(time_period, "NOW() - INTERVAL 1 YEAR")
+    allowed_times = list(TIME_RANGES.values())
+    if start_time not in allowed_times:
+        start_time = "NOW() - INTERVAL 1 YEAR"
     
     conn = connect_db()
     cursor = conn.cursor()
@@ -733,14 +718,11 @@ def add_expense(category, amount, desc):
         conn.close()
 
 def get_top_items(time_period, limit=5):
-    ranges = {
-        'Today': "CURDATE()",
-        'Last Week': "NOW() - INTERVAL 7 DAY",
-        'Last Month': "NOW() - INTERVAL 30 DAY",
-        '6 Months': "NOW() - INTERVAL 6 MONTH",
-        'All Time': "'1970-01-01'"
-    }
+    ranges = TIME_RANGES
     start_time = ranges.get(time_period, "NOW() - INTERVAL 1 YEAR")
+    allowed_times = list(TIME_RANGES.values())
+    if start_time not in allowed_times:
+        start_time = "NOW() - INTERVAL 1 YEAR"
     conn = connect_db()
     cursor = conn.cursor()
     try:
@@ -772,7 +754,6 @@ def get_analytics_data(months=6):
             AND b.Timestamp >= NOW() - INTERVAL {months} MONTH
         """
         
-        import pandas as pd
         sales_df = pd.read_sql_query(sales_query, conn)
         expense_df = pd.read_sql_query(expense_query, conn)
         cost_df = pd.read_sql_query(cost_query, conn)
@@ -785,15 +766,11 @@ def get_consolidated_stats(shop_id, time_period):
     Returns aggregated Sales, Repair Income, and Expenses for the selected time range.
     shop_id can be a specific shop ID or 'all'.
     """
-    ranges = {
-        'Today': "CURDATE()",
-        'Last Week': "NOW() - INTERVAL 7 DAY",
-        'Last Month': "NOW() - INTERVAL 30 DAY",
-        'Last 6 Months': "NOW() - INTERVAL 6 MONTH",
-        '6 Months': "NOW() - INTERVAL 6 MONTH",
-        'All Time': "'1970-01-01'"
-    }
+    ranges = TIME_RANGES
     start_time = ranges.get(time_period, "NOW() - INTERVAL 1 YEAR")
+    allowed_times = list(TIME_RANGES.values())
+    if start_time not in allowed_times:
+        start_time = "NOW() - INTERVAL 1 YEAR"
     
     conn = connect_db()
     cursor = conn.cursor()
@@ -952,13 +929,11 @@ def export_to_excel(time_period):
     Fetches transaction data and exports it to a professional Excel file.
     Filters by the selected time period and CURRENT_SHOP_ID.
     """
-    ranges = {
-        'Today': "CURDATE()",
-        'Last Week': "NOW() - INTERVAL 7 DAY",
-        'Last Month': "NOW() - INTERVAL 30 DAY",
-        '6 Months': "NOW() - INTERVAL 6 MONTH"
-    }
+    ranges = TIME_RANGES
     start_time = ranges.get(time_period, "NOW() - INTERVAL 1 YEAR")
+    allowed_times = list(TIME_RANGES.values())
+    if start_time not in allowed_times:
+        start_time = "NOW() - INTERVAL 1 YEAR"
     
     conn = connect_db()
     
@@ -973,9 +948,6 @@ def export_to_excel(time_period):
     """
     
     try:
-        import pandas as pd
-        from datetime import datetime
-        from openpyxl.styles import Font, PatternFill, Alignment
         
         df = pd.read_sql_query(query, conn)
         
@@ -1046,18 +1018,12 @@ def export_to_excel(time_period):
     finally:
         conn.close()
 
-if __name__ == "__main__":
-    create_tables()
 def get_history_data(time_period):
-    ranges = {
-        'Today': "CURDATE()",
-        'Last Week': "NOW() - INTERVAL 7 DAY",
-        'Last Month': "NOW() - INTERVAL 30 DAY",
-        'Last 6 Months': "NOW() - INTERVAL 6 MONTH",
-        '6 Months': "NOW() - INTERVAL 6 MONTH",
-        'All Time': "'1970-01-01'"
-    }
+    ranges = TIME_RANGES
     start_time = ranges.get(time_period, "NOW() - INTERVAL 1 YEAR")
+    allowed_times = list(TIME_RANGES.values())
+    if start_time not in allowed_times:
+        start_time = "NOW() - INTERVAL 1 YEAR"
     
     conn = connect_db()
     cursor = conn.cursor()
@@ -1083,3 +1049,35 @@ def get_history_data(time_period):
         return []
     finally:
         conn.close()
+
+def get_all_repairs(query="", status="All"):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        sql = "SELECT id, customer_name, item_name, Issue, estimated_cost, final_cost, exp_date, status FROM Repairs WHERE shop_id = %s"
+        params = [CURRENT_SHOP_ID]
+        if status != "All":
+            sql += " AND status = %s"
+            params.append(status)
+        else:
+            sql += " AND status IN ('Pending', 'Completed')"
+        if query:
+            clean_query = query
+            if query.startswith("JOB_ID:"):
+                try:
+                    clean_query = query.split("|")[0].split(":")[1]
+                except: pass
+            if clean_query.isdigit():
+                sql += " AND (id = %s OR customer_name LIKE %s OR item_name LIKE %s)"
+                params.extend([int(clean_query), '%'+clean_query+'%', '%'+clean_query+'%'])
+            else:
+                sql += " AND (customer_name LIKE %s OR item_name LIKE %s)"
+                params.extend(['%'+clean_query+'%', '%'+clean_query+'%'])
+        cursor.execute(sql, tuple(params))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+if __name__ == "__main__":
+    create_tables()
