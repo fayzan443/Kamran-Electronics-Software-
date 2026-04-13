@@ -347,6 +347,8 @@ class AdminDashboard(QMainWindow):
                  self.nav_title.setText("Transaction History")
              elif index == 4:
                  self.nav_title.setText("Reports")
+             elif index == 2:
+                 self.nav_title.setText("Staff Management")
              else:
                  self.nav_title.setText(active_btn.text().split(' ', 1)[-1])
 
@@ -355,12 +357,14 @@ class AdminDashboard(QMainWindow):
                 self.navbar_subtitle.setText("Complete record of all transactions")
             elif index == 4:
                 self.navbar_subtitle.setText("Generate and export business reports")
+            elif index == 2:
+                self.navbar_subtitle.setText("Manage your team members")
              
         if index == 0:
             current_period = self.period_dropdown.currentText()
             self.refresh_dashboard(current_period)
         elif index == 2:
-            self.staff_container.refresh_table()
+            self.staff_container.load_staff_data()
 
 
     def refresh_dashboard(self, time_period):
@@ -562,11 +566,9 @@ class AdminDashboard(QMainWindow):
 
     def refresh_all_dashboard_data(self, period):
         """Master function to refresh stats, top items, and transaction history."""
-        try:
-            self.refresh_financials(period)
-            self.refresh_top_selling_items(period)
-        except Exception as e:
-            print(f"Safety Check: Dashboard Refresh Failed Triggered: {e}")
+        # Note: Stats are already refreshed in refresh_dashboard()
+        # This can be used for any additional data needed specifically in dashboard view
+        pass
 
     def event(self, event):
         from PyQt6.QtCore import QEvent

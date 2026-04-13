@@ -79,7 +79,20 @@ def create_tables():
                         Purchase_Price DECIMAL(10,2),
                         Selling_Price DECIMAL(10,2),
                         Stock_Qty INT,
-                        Min_Limit INT)''')
+                        Min_Limit INT,
+                        Created_At DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+
+    # Migration: Ensure Created_At column exists for existing tables
+    try:
+        # Step 1: Add as NULL so existing records stay NULL (not showing in history)
+        cursor.execute("ALTER TABLE Products ADD COLUMN Created_At DATETIME NULL")
+    except:
+        pass 
+    try:
+        # Step 2: Set default for future inserts
+        cursor.execute("ALTER TABLE Products MODIFY Created_At DATETIME DEFAULT CURRENT_TIMESTAMP")
+    except:
+        pass
     
     # Migration: Ensure Barcode column exists
     try:
@@ -188,19 +201,63 @@ def create_tables():
                     Phone VARCHAR(50),
                     Assigned_Port VARCHAR(100))''')
     
+    # Staff Migrations
+    try:
+        cursor.execute("ALTER TABLE Staff ADD COLUMN Monthly_Salary DECIMAL(10,2) DEFAULT 0.00")
+    except: pass
+    try:
+        cursor.execute("ALTER TABLE Staff ADD COLUMN Advance_Amount DECIMAL(10,2) DEFAULT 0.00")
+    except: pass
+    try:
+        cursor.execute("ALTER TABLE Staff ADD COLUMN Status VARCHAR(50) DEFAULT 'Active'")
+    except: pass
+
+    # New History Tables
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Staff_Salary_History (
+                        History_ID INT AUTO_INCREMENT PRIMARY KEY,
+                        Shop_ID INT DEFAULT 1,
+                        Employee_ID INT,
+                        Month VARCHAR(20),
+                        Year INT,
+                        Base_Salary DECIMAL(10,2),
+                        Advance_Deducted DECIMAL(10,2) DEFAULT 0.00,
+                        Net_Paid DECIMAL(10,2),
+                        Payment_Date DATE,
+                        Notes TEXT,
+                        FOREIGN KEY (Employee_ID) REFERENCES Staff(Employee_ID) ON DELETE CASCADE)''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Staff_Advance_History (
+                        Advance_ID INT AUTO_INCREMENT PRIMARY KEY,
+                        Shop_ID INT DEFAULT 1,
+                        Employee_ID INT,
+                        Amount DECIMAL(10,2),
+                        Given_Date DATE,
+                        Notes TEXT,
+                        FOREIGN KEY (Employee_ID) REFERENCES Staff(Employee_ID) ON DELETE CASCADE)''')
+
+    cursor.execute('''CREATE TABLE IF NOT EXISTS Staff_Salary_Raises (
+                        Raise_ID INT AUTO_INCREMENT PRIMARY KEY,
+                        Shop_ID INT DEFAULT 1,
+                        Employee_ID INT,
+                        Old_Salary DECIMAL(10,2),
+                        New_Salary DECIMAL(10,2),
+                        Change_Date DATE,
+                        Reason TEXT,
+                        FOREIGN KEY (Employee_ID) REFERENCES Staff(Employee_ID) ON DELETE CASCADE)''')
+    
     conn.commit()
     conn.close()
     
     cleanup_database_automated()
     sync_alerts_to_table()
 
-def add_staff(name, role, join_date, phone, port):
+def add_staff(name, role, join_date, phone, port, monthly_salary=0, status='Active'):
     conn = connect_db()
     cursor = conn.cursor()
     try:
-        cursor.execute('''INSERT INTO Staff (Shop_ID, Name, Role, Join_Date, Phone, Assigned_Port) 
-                          VALUES (%s, %s, %s, %s, %s, %s)''', 
-                       (CURRENT_SHOP_ID, name, role, join_date, phone, port))
+        cursor.execute('''INSERT INTO Staff (Shop_ID, Name, Role, Join_Date, Phone, Assigned_Port, Monthly_Salary, Status) 
+                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s)''', 
+                       (CURRENT_SHOP_ID, name, role, join_date, phone, port, monthly_salary, status))
         conn.commit()
     finally:
         cursor.close()
@@ -210,7 +267,161 @@ def get_all_staff():
     conn = connect_db()
     cursor = conn.cursor()
     try:
-        cursor.execute("SELECT Employee_ID, Name, Role, Join_Date, Phone, Assigned_Port FROM Staff WHERE Shop_ID = %s", (CURRENT_SHOP_ID,))
+        cursor.execute("SELECT Employee_ID, Name, Role, Join_Date, Phone, Assigned_Port, Monthly_Salary, Advance_Amount, Status FROM Staff WHERE Shop_ID = %s", (CURRENT_SHOP_ID,))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_staff_by_id(employee_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT Employee_ID, Name, Role, Join_Date, Phone, Assigned_Port, Monthly_Salary, Advance_Amount, Status FROM Staff WHERE Employee_ID = %s AND Shop_ID = %s", (employee_id, CURRENT_SHOP_ID))
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+def update_staff(employee_id, name, role, join_date, phone, port, monthly_salary, status):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''UPDATE Staff SET Name=%s, Role=%s, Join_Date=%s, Phone=%s, Assigned_Port=%s, Monthly_Salary=%s, Status=%s 
+                          WHERE Employee_ID=%s AND Shop_ID=%s''', 
+                       (name, role, join_date, phone, port, monthly_salary, status, employee_id, CURRENT_SHOP_ID))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def delete_staff(employee_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM Staff WHERE Employee_ID=%s AND Shop_ID=%s", (employee_id, CURRENT_SHOP_ID))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_staff_salary_history(employee_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""SELECT * FROM Staff_Salary_History 
+                          WHERE Employee_ID = %s AND Shop_ID = %s 
+                          ORDER BY Year DESC, Month DESC""", (employee_id, CURRENT_SHOP_ID))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_last_salary_payment_date():
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT MAX(Payment_Date) FROM Staff_Salary_History WHERE Shop_ID = %s", (CURRENT_SHOP_ID,))
+        res = cursor.fetchone()
+        return res[0] if res and res[0] else None
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_salary_raise_history(employee_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""SELECT old_salary, new_salary, change_date, reason 
+                          FROM Staff_Salary_Raises 
+                          WHERE employee_id = %s AND shop_id = %s 
+                          ORDER BY change_date DESC LIMIT 5""", (employee_id, CURRENT_SHOP_ID))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+def add_salary_raise_record(employee_id, old_salary, new_salary, reason):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""INSERT INTO Staff_Salary_Raises (Shop_ID, Employee_ID, Old_Salary, New_Salary, Change_Date, Reason) 
+                          VALUES (%s, %s, %s, %s, %s, %s)""", 
+                       (CURRENT_SHOP_ID, employee_id, old_salary, new_salary, datetime.now().strftime("%Y-%m-%d"), reason))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def update_staff_salary(employee_id, new_salary):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE Staff SET Monthly_Salary = %s WHERE Employee_ID = %s AND Shop_ID = %s", 
+                       (new_salary, employee_id, CURRENT_SHOP_ID))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def add_salary_payment(employee_id, month, year, base_salary, advance_deducted, net_paid, payment_date, notes):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""INSERT INTO Staff_Salary_History 
+                          (Shop_ID, Employee_ID, Month, Year, Base_Salary, Advance_Deducted, Net_Paid, Payment_Date, Notes) 
+                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""", 
+                       (CURRENT_SHOP_ID, employee_id, month, year, base_salary, advance_deducted, net_paid, payment_date, notes))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def check_salary_already_paid(employee_id, month, year):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""SELECT COUNT(*) FROM Staff_Salary_History 
+                          WHERE Employee_ID = %s AND Month = %s AND Year = %s AND Shop_ID = %s""", 
+                       (employee_id, month, year, CURRENT_SHOP_ID))
+        res = cursor.fetchone()
+        return res[0] > 0
+    finally:
+        cursor.close()
+        conn.close()
+
+def add_advance_payment(employee_id, amount, given_date, notes):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        # Insert into history
+        cursor.execute("""INSERT INTO Staff_Advance_History (Shop_ID, Employee_ID, Amount, Given_Date, Notes) 
+                          VALUES (%s, %s, %s, %s, %s)""", (CURRENT_SHOP_ID, employee_id, amount, given_date, notes))
+        # Update current balance in Staff table
+        cursor.execute("UPDATE Staff SET Advance_Amount = Advance_Amount + %s WHERE Employee_ID = %s", (amount, employee_id))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def settle_advance(employee_id, deducted_amount):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE Staff SET Advance_Amount = GREATEST(0, Advance_Amount - %s) WHERE Employee_ID = %s AND Shop_ID = %s", 
+                       (deducted_amount, employee_id, CURRENT_SHOP_ID))
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_staff_advance_history(employee_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""SELECT * FROM Staff_Advance_History 
+                          WHERE Employee_ID = %s AND Shop_ID = %s 
+                          ORDER BY Given_Date DESC""", (employee_id, CURRENT_SHOP_ID))
         return cursor.fetchall()
     finally:
         cursor.close()
@@ -1197,8 +1408,9 @@ def get_history_data(time_period):
     (SELECT 'Shop Expense' as customer_name, 'Expense' as type, Description as description, Amount as amount, Timestamp as date
      FROM `kamran & sohail electronics`.Expenses WHERE Shop_ID = {CURRENT_SHOP_ID} AND Timestamp >= {start_time})
     UNION ALL
-    (SELECT 'Stock Added' as customer_name, 'Stock' as type, CONCAT(Name, ' (', Category, ')') as description, Stock_Qty as amount, NOW() as date
-     FROM `kamran & sohail electronics`.Products WHERE Shop_ID = {CURRENT_SHOP_ID} ORDER BY Product_ID DESC LIMIT 20)
+    (SELECT 'Stock Added' as customer_name, 'Stock' as type, CONCAT(Name, ' (', Category, ')') as description, Stock_Qty as amount, Created_At as date
+     FROM `kamran & sohail electronics`.Products 
+     WHERE Shop_ID = {CURRENT_SHOP_ID} AND Created_At IS NOT NULL AND Created_At BETWEEN {start_time} AND NOW())
     ORDER BY date DESC
     """
     
