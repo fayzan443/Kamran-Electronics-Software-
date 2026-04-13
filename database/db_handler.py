@@ -570,13 +570,170 @@ def sync_alerts_to_table():
     finally:
         conn.close()
 
+def get_low_stock_products():
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT Product_ID, Name, Stock_Qty, Min_Limit 
+            FROM Products 
+            WHERE Stock_Qty <= Min_Limit AND Shop_ID = %s 
+            ORDER BY Stock_Qty ASC
+        """, (CURRENT_SHOP_ID,))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_bill_details(customer_name, timestamp):
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT b.Bill_ID, b.Customer_Name, b.Timestamp, b.Total_Amount,
+                   bi.Description, bi.Type, bi.Price, bi.Quantity
+            FROM Bills b
+            JOIN Bill_Items bi ON b.Bill_ID = bi.Bill_ID
+            WHERE b.Customer_Name = %s 
+            AND b.Timestamp = %s
+            AND b.Shop_ID = %s
+        """, (customer_name, timestamp, CURRENT_SHOP_ID))
+        return cursor.fetchall()
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_chart_data(time_period):
+    from datetime import datetime, timedelta
+    conn = connect_db()
+    cursor = conn.cursor()
+    try:
+        # --- SALES DATA ---
+        if time_period == 'Today':
+            cursor.execute("""
+                SELECT HOUR(Timestamp) as h, SUM(Total_Amount)
+                FROM Bills WHERE DATE(Timestamp) = CURDATE() AND Shop_ID = %s
+                GROUP BY h ORDER BY h
+            """, (CURRENT_SHOP_ID,))
+            rows = cursor.fetchall()
+            labels = [f"{h}:00" for h in range(24)]
+            s_map = {r[0]: float(r[1] or 0) for r in rows}
+            sales_values = [s_map.get(h, 0.0) for h in range(24)]
+            
+            # Expenses for Today
+            cursor.execute("""
+                SELECT HOUR(Timestamp) as h, SUM(Amount)
+                FROM Expenses WHERE DATE(Timestamp) = CURDATE() AND Shop_ID = %s
+                GROUP BY h ORDER BY h
+            """, (CURRENT_SHOP_ID,))
+            e_rows = cursor.fetchall()
+            e_map = {r[0]: float(r[1] or 0) for r in e_rows}
+            expense_values = [e_map.get(h, 0.0) for h in range(24)]
+
+        elif time_period == 'Weekly':
+            dates = [(datetime.now() - timedelta(days=i)).date() for i in range(6, -1, -1)]
+            labels = [d.strftime('%a %d') for d in dates]
+            
+            cursor.execute("""
+                SELECT DATE(Timestamp) as d, SUM(Total_Amount)
+                FROM Bills WHERE Timestamp >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) AND Shop_ID = %s
+                GROUP BY d ORDER BY d
+            """, (CURRENT_SHOP_ID,))
+            rows = cursor.fetchall()
+            s_map = {r[0]: float(r[1] or 0) for r in rows}
+            sales_values = [s_map.get(d, 0.0) for d in dates]
+            
+            cursor.execute("""
+                SELECT DATE(Timestamp) as d, SUM(Amount)
+                FROM Expenses WHERE Timestamp >= DATE_SUB(CURDATE(), INTERVAL 6 DAY) AND Shop_ID = %s
+                GROUP BY d ORDER BY d
+            """, (CURRENT_SHOP_ID,))
+            e_rows = cursor.fetchall()
+            e_map = {r[0]: float(r[1] or 0) for r in e_rows}
+            expense_values = [e_map.get(d, 0.0) for d in dates]
+
+        elif time_period == 'Monthly':
+            dates = [(datetime.now() - timedelta(days=i)).date() for i in range(29, -1, -1)]
+            labels = [d.strftime('%d %b') for d in dates]
+            
+            cursor.execute("""
+                SELECT DATE(Timestamp) as d, SUM(Total_Amount)
+                FROM Bills WHERE Timestamp >= DATE_SUB(CURDATE(), INTERVAL 29 DAY) AND Shop_ID = %s
+                GROUP BY d ORDER BY d
+            """, (CURRENT_SHOP_ID,))
+            rows = cursor.fetchall()
+            s_map = {r[0]: float(r[1] or 0) for r in rows}
+            sales_values = [s_map.get(d, 0.0) for d in dates]
+            
+            cursor.execute("""
+                SELECT DATE(Timestamp) as d, SUM(Amount)
+                FROM Expenses WHERE Timestamp >= DATE_SUB(CURDATE(), INTERVAL 29 DAY) AND Shop_ID = %s
+                GROUP BY d ORDER BY d
+            """, (CURRENT_SHOP_ID,))
+            e_rows = cursor.fetchall()
+            e_map = {r[0]: float(r[1] or 0) for r in e_rows}
+            expense_values = [e_map.get(d, 0.0) for d in dates]
+
+        else: # Overall
+            cursor.execute("""
+                SELECT DATE_FORMAT(Timestamp, '%Y-%m') as m, SUM(Total_Amount)
+                FROM Bills WHERE Shop_ID = %s
+                GROUP BY m ORDER BY m
+            """, (CURRENT_SHOP_ID,))
+            rows = cursor.fetchall()
+            
+            cursor.execute("""
+                SELECT DATE_FORMAT(Timestamp, '%Y-%m') as m, SUM(Amount)
+                FROM Expenses WHERE Shop_ID = %s
+                GROUP BY m ORDER BY m
+            """, (CURRENT_SHOP_ID,))
+            e_rows = cursor.fetchall()
+            
+            # Combine labels from both if needed, but Bills usually cover the range
+            all_m = sorted(list(set([r[0] for r in rows] + [r[0] for r in e_rows])))
+            labels = all_m if all_m else ['No Data']
+            s_map = {r[0]: float(r[1] or 0) for r in rows}
+            e_map = {r[0]: float(r[1] or 0) for r in e_rows}
+            sales_values = [s_map.get(m, 0.0) for m in labels]
+            expense_values = [e_map.get(m, 0.0) for m in labels]
+
+        return labels, sales_values, expense_values
+    finally:
+        cursor.close()
+        conn.close()
+
+def get_recent_stock_alerts():
+    conn = connect_db()
+    cursor = conn.cursor()
+    alerts = []
+    try:
+        cursor.execute("""
+            SELECT Name, Stock_Qty, Min_Limit FROM Products
+            WHERE Stock_Qty <= Min_Limit AND Shop_ID = %s
+            ORDER BY Stock_Qty ASC LIMIT 5
+        """, (CURRENT_SHOP_ID,))
+        for row in cursor.fetchall():
+            alerts.append(('low_stock', row[0], f"{row[1]} left (min: {row[2]})"))
+
+        cursor.execute("""
+            SELECT Name, Stock_Qty FROM Products
+            WHERE Shop_ID = %s
+            ORDER BY Product_ID DESC LIMIT 3
+        """, (CURRENT_SHOP_ID,))
+        for row in cursor.fetchall():
+            alerts.append(('new_stock', row[0], f"Stock: {row[1]} units"))
+    finally:
+        cursor.close()
+        conn.close()
+    return alerts
+
 def get_all_alerts():
     alerts = []
     conn = connect_db()
     cursor = conn.cursor()
     try:
-        # 1. Stock Alert: Trigger when Stock_Qty falls below 5 (inclusive)
-        cursor.execute("SELECT Name, Stock_Qty FROM Products WHERE Stock_Qty <= 5 AND Shop_ID = %s", (CURRENT_SHOP_ID,))
+        # 1. Stock Alert: Trigger when Stock_Qty falls below Min_Limit (inclusive)
+        cursor.execute("SELECT Name, Stock_Qty FROM Products WHERE Stock_Qty <= Min_Limit AND Shop_ID = %s", (CURRENT_SHOP_ID,))
         for row in cursor.fetchall():
             alerts.append(f"Low Stock: {row[0]} ({row[1]} units left)")
 
@@ -1028,27 +1185,127 @@ def get_history_data(time_period):
     conn = connect_db()
     cursor = conn.cursor()
     
-    # Combined query for Bills, Repairs, and Expenses
+    # Combined query for Bills, Repairs, Expenses, and Stock additions
+    # Order: customer_name, type, description, amount, date
     query = f"""
-    (SELECT Timestamp as Date, 'Sale' as Type, Customer_Name as Description, Total_Amount as Amount
+    (SELECT Customer_Name as customer_name, 'Sale' as type, 'Sale Transaction' as description, Total_Amount as amount, Timestamp as date
      FROM `kamran & sohail electronics`.Bills WHERE Shop_ID = {CURRENT_SHOP_ID} AND Timestamp >= {start_time})
     UNION ALL
-    (SELECT exp_date as Date, 'Repair' as Type, CONCAT(Customer_Name, ' (', item_name, ')') as Description, final_cost as Amount
+    (SELECT customer_name as customer_name, 'Repair' as type, CONCAT(customer_name, ' (', item_name, ')') as description, final_cost as amount, exp_date as date
      FROM `kamran & sohail electronics`.Repairs WHERE shop_id = {CURRENT_SHOP_ID} AND status = 'Completed')
     UNION ALL
-    (SELECT Timestamp as Date, 'Expense' as Type, Description, Amount
+    (SELECT 'Shop Expense' as customer_name, 'Expense' as type, Description as description, Amount as amount, Timestamp as date
      FROM `kamran & sohail electronics`.Expenses WHERE Shop_ID = {CURRENT_SHOP_ID} AND Timestamp >= {start_time})
-    ORDER BY Date DESC
+    UNION ALL
+    (SELECT 'Stock Added' as customer_name, 'Stock' as type, CONCAT(Name, ' (', Category, ')') as description, Stock_Qty as amount, NOW() as date
+     FROM `kamran & sohail electronics`.Products WHERE Shop_ID = {CURRENT_SHOP_ID} ORDER BY Product_ID DESC LIMIT 20)
+    ORDER BY date DESC
     """
     
     try:
         cursor.execute(query)
         rows = cursor.fetchall()
         return rows
-    except Exception:
+    except Exception as e:
+        print(f"Error fetching history data: {e}")
         return []
     finally:
         conn.close()
+
+def get_report_data(from_date, to_date):
+    """
+    Fetches aggregated and detailed data for business reports between two dates.
+    from_date, to_date: date objects or strings
+    """
+    if hasattr(from_date, 'strftime'):
+        f_date = from_date.strftime('%Y-%m-%d')
+    else:
+        f_date = str(from_date)
+        
+    if hasattr(to_date, 'strftime'):
+        t_date = to_date.strftime('%Y-%m-%d')
+    else:
+        t_date = str(to_date)
+        
+    f_dt = f"{f_date} 00:00:00"
+    t_dt = f"{t_date} 23:59:59"
+    
+    conn = connect_db()
+    cursor = conn.cursor()
+    data = {
+        'summary': {},
+        'sales': [],
+        'repairs': [],
+        'expenses': [],
+        'stock': [],
+        'low_stock': []
+    }
+    
+    try:
+        # 1. Sales Transactions (Bills joined with Items)
+        cursor.execute("""
+            SELECT b.Timestamp, b.Customer_Name, bi.Description, (bi.Price * bi.Quantity) as total
+            FROM Bills b
+            JOIN Bill_Items bi ON b.Bill_ID = bi.Bill_ID
+            WHERE b.Shop_ID = %s AND b.Timestamp BETWEEN %s AND %s
+            ORDER BY b.Timestamp DESC
+        """, (CURRENT_SHOP_ID, f_dt, t_dt))
+        data['sales'] = cursor.fetchall()
+        
+        # 2. Repair Jobs
+        cursor.execute("""
+            SELECT customer_name, item_name, Issue, estimated_cost, final_cost, status
+            FROM Repairs
+            WHERE shop_id = %s AND (exp_date BETWEEN %s AND %s OR return_timestamp BETWEEN %s AND %s)
+        """, (CURRENT_SHOP_ID, f_date, t_date, f_dt, t_dt))
+        data['repairs'] = cursor.fetchall()
+        
+        # 3. Expenses
+        cursor.execute("""
+            SELECT Timestamp, Category, Description, Amount
+            FROM Expenses
+            WHERE Shop_ID = %s AND Timestamp BETWEEN %s AND %s
+            ORDER BY Timestamp DESC
+        """, (CURRENT_SHOP_ID, f_dt, t_dt))
+        data['expenses'] = cursor.fetchall()
+        
+        # 4. Stock Additions (Approximation using Product_ID order)
+        cursor.execute("""
+            SELECT Name, Category, Stock_Qty, Purchase_Price, Selling_Price
+            FROM Products
+            WHERE Shop_ID = %s
+            ORDER BY Product_ID DESC LIMIT 50
+        """, (CURRENT_SHOP_ID,))
+        data['stock'] = cursor.fetchall()
+        
+        # 5. Low Stock
+        cursor.execute("""
+            SELECT Name, Stock_Qty, Min_Limit
+            FROM Products
+            WHERE Shop_ID = %s AND Stock_Qty <= Min_Limit
+        """, (CURRENT_SHOP_ID,))
+        data['low_stock'] = cursor.fetchall()
+        
+        # 6. Summary Calculation
+        total_rev = sum(float(row[3] or 0) for row in data['sales'])
+        total_exp = sum(float(row[3] or 0) for row in data['expenses'])
+        
+        data['summary'] = {
+            'total_revenue': total_rev,
+            'total_expenses': total_exp,
+            'net_profit': total_rev - total_exp,
+            'total_transactions': len(data['sales']),
+            'total_repairs': len(data['repairs']),
+            'total_stock_added': len(data['stock'])
+        }
+        
+    except Exception as e:
+        print(f"Report data fetch error: {e}")
+    finally:
+        cursor.close()
+        conn.close()
+        
+    return data
 
 def get_all_repairs(query="", status="All"):
     conn = connect_db()

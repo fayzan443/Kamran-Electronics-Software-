@@ -108,7 +108,7 @@ class NewBillWindow(QMainWindow):
         scan_h_layout = QHBoxLayout()
         
         self.scan_input = QLineEdit()
-        self.scan_input.setPlaceholderText("Enter Product Name, Category, or Scan Barcode...")
+        self.scan_input.setPlaceholderText("Enter Product Name, Company Name, or Scan Barcode...")
         
         # Setup Custom Search Popup
         self.search_popup = SearchPopup(self)
@@ -702,7 +702,7 @@ class SearchPopup(QFrame):
         
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["ID", "Name", "Category", "Price", "Stock"])
+        self.table.setHorizontalHeaderLabels(["ID", "Name", "Company Name", "Price", "Stock"])
         
         # Header Styling
         header = self.table.horizontalHeader()

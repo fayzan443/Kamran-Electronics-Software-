@@ -72,11 +72,11 @@ class AddStockWindow(QMainWindow):
         
         # Inputs
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("Product Name (e.g. Haier AC)")
+        self.name_input.setPlaceholderText("Product Name (e.g. AC Remote, Washing Machine Motor, LED Bulb)")
         self.name_input.setStyleSheet(input_style)
         
         self.category_input = QLineEdit()
-        self.category_input.setPlaceholderText("Category (e.g. Appliances)")
+        self.category_input.setPlaceholderText("Company Name (e.g. Samsung, Orient, Haier, PEL)")
         self.category_input.setStyleSheet(input_style)
         
         self.p_price_input = QLineEdit()
@@ -225,7 +225,7 @@ class AddStockWindow(QMainWindow):
         painter.drawText(50, 50, f"PRODUCT: {self.name_input.text().upper()}")
         
         painter.setFont(QFont("Arial", 10))
-        painter.drawText(50, 80, f"CATEGORY: {self.category_input.text()}")
+        painter.drawText(50, 80, f"COMPANY NAME: {self.category_input.text()}")
         painter.drawText(300, 80, f"PRICE: Rs. {self.s_price_input.text()}")
         
         if self.generated_barcode_pixmap:

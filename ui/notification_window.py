@@ -1,18 +1,19 @@
 import sys
 import os
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QListWidgetItem, 
-                             QLabel, QFrame, QApplication)
+                             QLabel, QFrame, QApplication, QPushButton, QHBoxLayout)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
 # database folder se import karein
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from database.db_handler import get_notifications
+from database.db_handler import get_notifications, get_low_stock_products
 
 class NotificationPopup(QWidget):
     # Signals to communicate with MainWindow
     open_products = pyqtSignal()
     open_repairs = pyqtSignal()
+    open_stock_item = pyqtSignal(int)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -92,21 +93,64 @@ class NotificationPopup(QWidget):
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.list_widget.addItem(item)
         else:
+            try:
+                low_stock_map = {row[1]: row[0] for row in get_low_stock_products()}
+            except:
+                low_stock_map = {}
+                
             for alert in alerts:
+                item = QListWidgetItem()
+                self.list_widget.addItem(item)
+                
+                widget = QWidget()
+                h_layout = QHBoxLayout(widget)
+                h_layout.setContentsMargins(10, 5, 10, 5)
+                
                 if "Low Stock" in alert:
                     icon = "📦"
-                    color = QColor("#d63031") # Red
+                    color = "#d63031" # Red
                 else:
                     icon = "🛠️"
-                    color = QColor("#0984e3") # Blue
+                    color = "#0984e3" # Blue
                     
-                item = QListWidgetItem(f"{icon} {alert}")
-                item.setForeground(color)
-                # Font weight for alerts
-                font = item.font()
-                font.setBold(True)
-                item.setFont(font)
-                self.list_widget.addItem(item)
+                lbl = QLabel(f"{icon} {alert}")
+                lbl.setStyleSheet(f"color: {color}; font-family: 'Segoe UI'; font-size: 13px; font-weight: bold;")
+                h_layout.addWidget(lbl)
+                
+                if "Low Stock" in alert:
+                    btn = QPushButton("View →")
+                    btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                    btn.setStyleSheet("""
+                        QPushButton {
+                            background-color: #3A8DFF;
+                            color: white;
+                            border-radius: 10px;
+                            padding: 4px 12px;
+                            font-size: 12px;
+                            font-weight: bold;
+                            border: none;
+                        }
+                        QPushButton:hover { background-color: #245fa8; }
+                    """)
+                    try:
+                        name_part = alert.split("Low Stock: ")[1].rsplit(" (", 1)[0]
+                        p_id = low_stock_map.get(name_part)
+                        if p_id is not None:
+                            btn.clicked.connect(lambda checked, pid=p_id: self._on_view_clicked(pid))
+                        else:
+                            btn.hide()
+                    except:
+                        btn.hide()
+                        
+                    h_layout.addStretch()
+                    h_layout.addWidget(btn)
+                    
+                item.setSizeHint(widget.sizeHint())
+                self.list_widget.setItemWidget(item, widget)
+
+    def _on_view_clicked(self, pid):
+        self.open_stock_item.emit(pid)
+        self.close()
 
     def handle_click(self, item):
         text = item.text()

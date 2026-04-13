@@ -4,7 +4,7 @@ from PyQt6.QtGui import QColor, QFont, QIcon, QPainter
 from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QPushButton, 
                              QLabel, QHBoxLayout, QFrame, QGridLayout, QTableWidget, 
                              QHeaderView, QGraphicsDropShadowEffect, QApplication, 
-                             QTableWidgetItem, QStyledItemDelegate, QStyle, QAbstractItemView, QLineEdit)
+                             QTableWidgetItem, QStyledItemDelegate, QStyle, QAbstractItemView, QLineEdit, QDialog)
 from PyQt6.QtCore import Qt, QSize, QTimer, QByteArray
 from PyQt6.QtSvg import QSvgRenderer
 from ui.products_window import ProductsWindow
@@ -15,7 +15,7 @@ from ui.new_bill_window import NewBillWindow
 from ui.notification_window import NotificationPopup
 from ui.login_form import LoginForm
 from ui.admin_dashboard import AdminDashboard
-from database.db_handler import get_notifications, get_bill_history, sync_alerts_to_table, get_app_settings
+from database.db_handler import get_notifications, get_bill_history, sync_alerts_to_table, get_app_settings, get_bill_details
 from ui.styles import STYLE_SHEET
 from utils.shared import RowHoverDelegate
 # --- PROFESSIONAL SVG ICON LIBRARY ---
@@ -271,6 +271,24 @@ class MainWindow(QMainWindow):
         title_layout.addWidget(icon_lbl)
         title_layout.addWidget(text_lbl)
         title_layout.addStretch()
+        
+        self.view_bill_btn = QPushButton("🧾 View Bill")
+        self.view_bill_btn.setFixedSize(140, 38)
+        self.view_bill_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_bill_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1B4D89;
+                color: white;
+                border-radius: 19px;
+                font-weight: bold;
+                font-size: 13px;
+                border: none;
+            }
+            QPushButton:hover { background-color: #3A8DFF; }
+        """)
+        self.view_bill_btn.hide()
+        self.view_bill_btn.clicked.connect(self.open_bill_detail_popup)
+        title_layout.addWidget(self.view_bill_btn)
         # Search Bar for Recent Activity
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("🔍 Search History...")
@@ -302,6 +320,7 @@ class MainWindow(QMainWindow):
         self.table.setItemDelegate(self.delegate)
         self.table.setMouseTracking(True)
         self.table.cellEntered.connect(self.handle_hover)
+        self.table.itemSelectionChanged.connect(self.on_activity_row_selected)
 
         self.table.setRowCount(0)
         self.table.setFixedHeight(280)
@@ -328,6 +347,29 @@ class MainWindow(QMainWindow):
                     item = QTableWidgetItem(str(val))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     self.table.setItem(r, c, item)
+        except Exception:
+            pass
+
+    def on_activity_row_selected(self):
+        selected = self.table.selectedItems()
+        if selected:
+            self.view_bill_btn.show()
+        else:
+            self.view_bill_btn.hide()
+
+    def open_bill_detail_popup(self):
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        # Row 0: Customer Name, Row 4: Timestamp (Correcting user's instructed indices)
+        customer = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
+        timestamp = self.table.item(row, 4).text() if self.table.item(row, 4) else ""
+        try:
+            rows = get_bill_details(customer, timestamp)
+            if not rows:
+                return
+            self.bill_popup = BillDetailPopup(rows, self)
+            self.bill_popup.exec()
         except Exception:
             pass
 
@@ -378,6 +420,7 @@ class MainWindow(QMainWindow):
         # Connect signals for interactivity
         self.note_win.open_products.connect(self.open_product_manager)
         self.note_win.open_repairs.connect(self.manage_repairs)
+        self.note_win.open_stock_item.connect(self.open_stock_item_in_manager)
         
         # Position logic
         icon_pos = self.bell_icon.mapToGlobal(self.bell_icon.rect().bottomLeft())
@@ -411,6 +454,11 @@ class MainWindow(QMainWindow):
         # This function now handles the List View (ProductsWindow)
         self.p_win = ProductsWindow()
         self.p_win.show()
+
+    def open_stock_item_in_manager(self, product_id):
+        self.p_win = ProductsWindow()
+        self.p_win.show()
+        self.p_win.highlight_product(product_id)
 
     def refresh_product_list(self):
         # Refresh ProductsWindow data IF it is currently open
@@ -476,6 +524,113 @@ class MainWindow(QMainWindow):
         except:
             pass
         return settings
+
+class BillDetailPopup(QDialog):
+    def __init__(self, rows, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Bill Detail")
+        self.setFixedSize(580, 480)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #F0F2F5;
+                font-family: 'Segoe UI';
+                border-radius: 20px;
+            }
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(15)
+        
+        # Header
+        bill_id = rows[0][0]
+        customer = rows[0][1]
+        timestamp = str(rows[0][2])
+        total = rows[0][3]
+        
+        header = QFrame()
+        header.setObjectName("Navbar")
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(20, 15, 20, 15)
+        
+        title = QLabel(f"🧾  Bill #{bill_id}")
+        title.setStyleSheet("color: white; font-size: 18px; font-weight: bold;")
+        
+        customer_lbl = QLabel(f"👤 {customer}")
+        customer_lbl.setStyleSheet("color: rgba(255,255,255,0.85); font-size: 13px;")
+        
+        date_lbl = QLabel(timestamp[:16])
+        date_lbl.setStyleSheet("color: rgba(255,255,255,0.7); font-size: 12px;")
+        
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        header_layout.addWidget(customer_lbl)
+        header_layout.addSpacing(15)
+        header_layout.addWidget(date_lbl)
+        layout.addWidget(header)
+        
+        # Items Table
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["Item", "Type", "Price", "Qty"])
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                border-radius: 15px;
+                border: none;
+                font-size: 13px;
+            }
+            QHeaderView::section {
+                background-color: white;
+                font-weight: 800;
+                color: #1E293B;
+                padding: 12px;
+                border-bottom: 2px solid #F0F2F5;
+                border: none;
+            }
+            QTableWidget::item {
+                padding: 12px;
+                border-bottom: 1px solid #F0F2F5;
+                color: #44474B;
+            }
+            QTableWidget::item:alternate {
+                background-color: #F8F9FA;
+            }
+        """)
+        
+        for row_data in rows:
+            r = table.rowCount()
+            table.insertRow(r)
+            desc, itype, price, qty = row_data[4], row_data[5], row_data[6], row_data[7]
+            for c, val in enumerate([desc, itype, f"Rs. {float(price):,.0f}", str(qty)]):
+                cell = QTableWidgetItem(val)
+                cell.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                table.setItem(r, c, cell)
+        
+        layout.addWidget(table)
+        
+        # Total Footer
+        total_frame = QFrame()
+        total_frame.setObjectName("MainContainer")
+        total_layout = QHBoxLayout(total_frame)
+        total_layout.setContentsMargins(20, 15, 20, 15)
+        
+        total_lbl = QLabel("GRAND TOTAL")
+        total_lbl.setStyleSheet("font-size: 15px; font-weight: 800; color: #1E293B;")
+        
+        amount_lbl = QLabel(f"Rs. {float(total):,.0f}")
+        amount_lbl.setStyleSheet("font-size: 20px; font-weight: 900; color: #1B4D89;")
+        
+        total_layout.addWidget(total_lbl)
+        total_layout.addStretch()
+        total_layout.addWidget(amount_lbl)
+        layout.addWidget(total_frame)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

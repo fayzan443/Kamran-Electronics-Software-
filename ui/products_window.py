@@ -88,13 +88,13 @@ class ProductsWindow(QMainWindow):
         # --- Search Bar Area ---
         self.search_bar = QLineEdit()
         self.search_bar.setObjectName("SearchBar")
-        self.search_bar.setPlaceholderText("🔍 Search Product Name or Category...")
+        self.search_bar.setPlaceholderText("🔍 Search Product Name or Company Name...")
         self.search_bar.textChanged.connect(self.load_data)
         container_layout.addWidget(self.search_bar)
         
         # Table
         self.table = QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["ID", "Name", "Category", "Pur. Price", "Sell Price", "Stock", "Min Limit"])
+        self.table.setHorizontalHeaderLabels(["ID", "Name", "Company Name", "Pur. Price", "Sell Price", "Stock", "Min Limit"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         self.table.verticalHeader().setVisible(False)
@@ -146,3 +146,11 @@ class ProductsWindow(QMainWindow):
                     self.table.setItem(row, i, item)
         except Exception:
             pass
+
+    def highlight_product(self, product_id):
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.text() == str(product_id):
+                self.table.selectRow(row)
+                self.table.scrollToItem(item)
+                break

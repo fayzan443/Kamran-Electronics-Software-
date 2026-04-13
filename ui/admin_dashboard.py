@@ -3,20 +3,23 @@ from PyQt6.QtWidgets import (QMainWindow, QVBoxLayout, QWidget, QLabel, QHBoxLay
                              QFrame, QGraphicsDropShadowEffect, QApplication, QTableWidget, 
                              QTableWidgetItem, QHeaderView, QComboBox, QPushButton, QDialog,
                              QLineEdit, QFormLayout, QMessageBox, QFileDialog, QAbstractItemView, QScrollArea,
-                             QStackedWidget)
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer
+                             QStackedWidget, QSizePolicy, QDateEdit)
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QTimer, QDate, QThread
 from PyQt6.QtGui import QColor, QFont, QIcon
 from database.db_handler import (get_consolidated_stats, get_recent_transactions, 
                                  get_top_items, add_expense, get_analytics_data, 
                                  CURRENT_SHOP_ID, set_shop_id, export_to_excel,
-                                 get_history_data, get_dashboard_insights)
+                                 get_history_data, get_dashboard_insights, get_app_settings, get_notifications,
+                                 get_chart_data, get_recent_stock_alerts, get_report_data)
+from datetime import datetime
 import pandas as pd
+import os
 from ui.admin_settings_window import AdminSettingsView
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from ui.styles import STYLE_SHEET
-from utils.report_generator import generate_daily_report
+
 class ExpenseDialog(QDialog):
     data_updated = pyqtSignal()
     
@@ -89,6 +92,35 @@ class ExpenseDialog(QDialog):
         except ValueError:
             QMessageBox.warning(self, "Invalid Amount", "Please enter a valid numeric value for the amount.")
 
+class ReportWorker(QThread):
+    report_done = pyqtSignal(str)
+    report_failed = pyqtSignal(str)
+
+    def __init__(self, from_date, to_date, format_type):
+        super().__init__()
+        self.from_date = from_date
+        self.to_date = to_date
+        self.format_type = format_type
+
+    def run(self):
+        try:
+            from database.db_handler import get_report_data
+            from utils.report_generator import generate_pdf_report, generate_excel_report
+            
+            data = get_report_data(self.from_date, self.to_date)
+            
+            if self.format_type == "PDF":
+                filepath = generate_pdf_report(data, self.from_date, self.to_date)
+            else:
+                filepath = generate_excel_report(data, self.from_date, self.to_date)
+            
+            if filepath:
+                self.report_done.emit(filepath)
+            else:
+                self.report_failed.emit("Failed to generate report file.")
+        except Exception as e:
+            self.report_failed.emit(str(e))
+
 class AdminDashboard(QMainWindow):
     logout_clicked = pyqtSignal()
     settings_updated = pyqtSignal()
@@ -100,13 +132,6 @@ class AdminDashboard(QMainWindow):
         
         # --- GLOBAL UI STYLE ---
         self.setStyleSheet(STYLE_SHEET)
-        
-        # --- SCROLL AREA WRAPPER ---
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll.setObjectName("DashboardScroll")
-        self.scroll.setStyleSheet("QScrollArea#DashboardScroll { background-color: #F0F2F5; border: none; }")
         
         self.central_widget = QWidget()
         self.central_widget.setObjectName("AdminMain")
@@ -120,120 +145,186 @@ class AdminDashboard(QMainWindow):
         
         # --- 1. SIDEBAR ---
         self.sidebar = QFrame()
-        self.sidebar.setFixedWidth(260)
+        self.sidebar.setFixedWidth(270)
         self.sidebar.setObjectName("AdminSidebar")
         self.sidebar.setStyleSheet("""
             QFrame#AdminSidebar { 
-                background-color: #FFFFFF; 
-                border-right: 1px solid #E0E0E0;
+                background-color: #0F172A; /* Deep Navy/Slate 900 */
             }
             QPushButton {
                 text-align: left;
-                padding: 15px 25px;
+                padding: 14px 18px;
                 border: none;
                 border-radius: 12px;
                 background-color: transparent;
-                color: #636E72;
+                color: #94A3B8; /* Muted Slate */
                 font-weight: 600;
                 font-size: 14px;
-                margin: 5px 15px;
+                margin: 4px 15px;
             }
-            QPushButton:hover { background-color: #F8F9FA; color: #3A8DFF; }
+            QPushButton:hover { 
+                background-color: rgba(255, 255, 255, 0.05); 
+                color: #FFFFFF; 
+            }
             QPushButton#ActiveNav { 
-                background-color: #3A8DFF10; 
-                color: #3A8DFF; 
-                border: 1px solid #3A8DFF30;
+                background-color: #3B82F6; /* Primary Modern Blue */
+                color: #FFFFFF; 
+                font-weight: 700;
+                border-radius: 12px;
             }
         """)
         
         side_layout = QVBoxLayout(self.sidebar)
-        side_layout.setContentsMargins(10, 40, 10, 40)
-        side_layout.setSpacing(5)
+        side_layout.setContentsMargins(0, 25, 0, 25)
+        side_layout.setSpacing(8)
         
-        side_title = QLabel("🛡️ ADMIN")
-        side_title.setStyleSheet("font-size: 20px; font-weight: 900; color: #1E293B; margin-bottom: 30px; margin-left: 20px;")
-        side_layout.addWidget(side_title)
+        # Premium Brand Badge
+        brand_area = QFrame()
+        brand_area.setStyleSheet("margin: 0px 20px 20px 20px; padding: 15px; background: rgba(255,255,255,0.03); border-radius: 20px; border: 1px solid rgba(255,255,255,0.05);")
+        brand_layout = QHBoxLayout(brand_area)
+        brand_layout.setContentsMargins(10, 5, 10, 5)
         
-        self.nav_home = QPushButton("🏠 Home")
+        brand_icon = QLabel("⚡")
+        brand_icon.setStyleSheet("font-size: 22px; background: transparent;")
+        
+        shop_name = get_app_settings().get("shop_name", "Kamran Electronics")
+        brand_text_layout = QVBoxLayout()
+        brand_name = QLabel(shop_name)
+        brand_name.setStyleSheet("color: #F8FAFC; font-size: 15px; font-weight: 800; background: transparent;")
+        brand_tag = QLabel("ADMIN PANEL")
+        brand_tag.setStyleSheet("color: #3B82F6; font-size: 9px; font-weight: 700; letter-spacing: 1px; background: transparent;")
+        
+        brand_text_layout.addWidget(brand_name)
+        brand_text_layout.addWidget(brand_tag)
+        
+        brand_layout.addWidget(brand_icon)
+        brand_layout.addLayout(brand_text_layout)
+        brand_layout.addStretch()
+        
+        side_layout.addWidget(brand_area)
+
+        # Nav Title
+        nav_section_lbl = QLabel("MAIN MENU")
+        nav_section_lbl.setStyleSheet("color: #475569; font-size: 11px; font-weight: 800; letter-spacing: 2px; padding: 10px 30px; margin-top: 10px;")
+        side_layout.addWidget(nav_section_lbl)
+        
+        self.nav_home = QPushButton("🏠   Dashboard")
         self.nav_home.setObjectName("ActiveNav")
         self.nav_home.clicked.connect(lambda: self.switch_view(0, self.nav_home))
         
-        self.nav_history = QPushButton("📜 History")
-        self.nav_history.clicked.connect(lambda: self.switch_view(3, self.nav_history))
-        self.nav_report = QPushButton("📊 Report")
-        self.nav_report.clicked.connect(self.handle_export)
+        self.nav_history = QPushButton("📜   History")
+        self.nav_history.clicked.connect(lambda: self.switch_view(1, self.nav_history))
         
-        self.nav_staff = QPushButton("👥 Staff Record")
-        self.nav_staff.clicked.connect(lambda: self.switch_view(1, self.nav_staff))
+        self.nav_reports = QPushButton("📋   Reports")
+        self.nav_reports.clicked.connect(lambda: self.switch_view(4, self.nav_reports))
         
-        self.nav_settings = QPushButton("⚙️ Settings")
-        self.nav_settings.clicked.connect(lambda: self.switch_view(2, self.nav_settings))
+        self.nav_staff = QPushButton("👥   Staff Management")
+        self.nav_staff.clicked.connect(lambda: self.switch_view(2, self.nav_staff))
+        
+        self.nav_settings = QPushButton("⚙️   System Settings")
+        self.nav_settings.clicked.connect(lambda: self.switch_view(3, self.nav_settings))
         
         side_layout.addWidget(self.nav_home)
         side_layout.addWidget(self.nav_history)
-        side_layout.addWidget(self.nav_report)
+        side_layout.addWidget(self.nav_reports)
         side_layout.addWidget(self.nav_staff)
         side_layout.addWidget(self.nav_settings)
         side_layout.addStretch()
         
-        self.nav_logout = QPushButton("🚪 Logout")
-        self.nav_logout.clicked.connect(self.logout)
-        side_layout.addWidget(self.nav_logout)
+        # Sidebar Footer
+        footer_card = QFrame()
+        footer_card.setStyleSheet("background: rgba(15, 23, 42, 0.5); border-top: 1px solid rgba(255,255,255,0.05); padding: 20px;")
+        footer_layout = QVBoxLayout(footer_card)
+        
+        version_lbl = QLabel("Build v1.0.4 - STABLE")
+        version_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_lbl.setStyleSheet("color: #475569; font-size: 10px; font-weight: 600;")
+        
+        copyright_lbl = QLabel("© 2026 Kamran Electronics")
+        copyright_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        copyright_lbl.setStyleSheet("color: #1E293B; font-size: 9px; margin-top: 2px;")
+        
+        footer_layout.addWidget(version_lbl)
+        footer_layout.addWidget(copyright_lbl)
+        
+        side_layout.addWidget(footer_card)
         
         self.root_layout.addWidget(self.sidebar)
         
         # --- 2. MAIN CONTENT AREA ---
         self.content_area = QWidget()
         self.main_layout = QVBoxLayout(self.content_area)
-        self.main_layout.setContentsMargins(40, 30, 40, 40)
-        self.main_layout.setSpacing(30)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
         
         # --- GLOBAL SHARED NAVBAR (Persistent) ---
         self.setup_shared_navbar()
+        
+        # --- MARGINED CONTAINER FOR STACK ---
+        self.stack_wrapper = QWidget()
+        self.stack_wrapper_layout = QVBoxLayout(self.stack_wrapper)
+        self.stack_wrapper_layout.setContentsMargins(0, 0, 0, 0) # Wrapper doesn't need margins if dash_layout handles it
+        self.stack_wrapper_layout.setSpacing(0)
         
         # --- STACKED WIDGET FOR VIEWS ---
         self.stack = QStackedWidget()
         self.dashboard_container = QWidget()
         self.dash_layout = QVBoxLayout(self.dashboard_container)
-        self.dash_layout.setContentsMargins(0, 0, 0, 0)
-        self.dash_layout.setSpacing(30)
+        self.dash_layout.setContentsMargins(25, 15, 25, 25)
+        self.dash_layout.setSpacing(12)
         
         self.stat_widgets = {} 
         
         # Remove top bar from here, it's global now
         self.setup_stats_cards()
-        self.setup_center_section()
+        self.setup_center_section() # Implement Row 3
         self.setup_bottom_bar()
         
         self.stack.addWidget(self.dashboard_container) # Index 0
         
-        # Staff View
+        # History View (Index 1)
+        self.history_view = QWidget()
+        self.history_view.setStyleSheet("background-color: white;")
+        self.stack.addWidget(self.history_view)
+        
+        # Staff View (Index 2)
         from ui.staff_view import StaffView
         self.staff_container = StaffView()
-        self.stack.addWidget(self.staff_container) # Index 1
+        self.stack.addWidget(self.staff_container)
         
-        # Settings View Placeholder setup for stack
+        # Settings View (Index 3)
         from ui.admin_settings_window import AdminSettingsView
         self.settings_view = AdminSettingsView()
         self.settings_view.back_clicked.connect(lambda: self.switch_view(0, self.nav_home))
         self.settings_view.settings_saved.connect(self.settings_updated.emit)
-        self.stack.addWidget(self.settings_view) # Index 2
+        self.stack.addWidget(self.settings_view)
         
-        # History View Placeholder
-        self.history_view = QWidget()
-        history_layout = QVBoxLayout(self.history_view)
-        history_layout.addWidget(QLabel("History View - Coming Soon", alignment=Qt.AlignmentFlag.AlignCenter))
-        self.stack.addWidget(self.history_view) # Index 3
+        # Reports Page (Index 4)
+        self.reports_page = QWidget()
+        self.stack.addWidget(self.reports_page)
         
-        self.main_layout.addWidget(self.stack)
+        self.stack_wrapper_layout.addWidget(self.stack)
+        self.main_layout.addWidget(self.stack_wrapper)
         
         self.root_layout.addWidget(self.content_area)
         
         # Track buttons for ActiveNav style
-        self.nav_buttons = [self.nav_home, self.nav_history, self.nav_report, self.nav_staff, self.nav_settings]
+        self.nav_buttons = [self.nav_home, self.nav_history, self.nav_reports, self.nav_staff, self.nav_settings]
         
         # Refresh now only AFTER UI is fully built
-        self.refresh_dashboard()
+        self.refresh_dashboard('Today')
+        self.update_notification_badge()
+        
+        # Auto refresh every 5 minutes
+        self.auto_refresh_timer = QTimer()
+        self.auto_refresh_timer.timeout.connect(self.auto_refresh)
+        self.auto_refresh_timer.start(300000)
+
+        # Build History Page Content
+        self.build_history_page()
+        
+        # Build Reports Page Content
+        self.build_reports_page()
 
     def switch_view(self, index, active_btn):
         """Switches the QStackedWidget index and handles ActiveNav button highlighting."""
@@ -251,86 +342,229 @@ class AdminDashboard(QMainWindow):
             
         self.stack.setCurrentIndex(index)
         
+        if hasattr(self, 'nav_title'):
+             if index == 1:
+                 self.nav_title.setText("Transaction History")
+             elif index == 4:
+                 self.nav_title.setText("Reports")
+             else:
+                 self.nav_title.setText(active_btn.text().split(' ', 1)[-1])
+
+        if hasattr(self, 'navbar_subtitle'):
+            if index == 1:
+                self.navbar_subtitle.setText("Complete record of all transactions")
+            elif index == 4:
+                self.navbar_subtitle.setText("Generate and export business reports")
+             
         if index == 0:
-            self.refresh_dashboard()
-        elif index == 1:
+            current_period = self.period_dropdown.currentText()
+            self.refresh_dashboard(current_period)
+        elif index == 2:
             self.staff_container.refresh_table()
 
 
-    def refresh_dashboard(self):
-        """Live refresh of all data and charts."""
-        data = get_dashboard_insights()
-        
-        # 1. Update Cards
-        self.sales_val.setText(f"Rs. {data['today_sales']:,.0f}")
-        self.repairs_val.setText(f"{data['today_repairs_count']}")
-        self.profit_val.setText(f"Rs. {data['monthly_profit']:,.0f}")
-        self.stock_val.setText(f"Low: {len(data['low_stock_list'])}")
-        
-        # 2. Update Chart
-        self.update_chart(data['weekly_trend'])
-        
-        # 3. Update Alerts (Right Side)
-        self.update_alerts(data['low_stock_list'])
-        
-        # 4. Refresh existing tables if period selected
-        self.refresh_all_dashboard_data(self.filter_combo.currentText())
-
-    def update_chart(self, trend_data):
-        self.ax.clear()
-        
-        # Set Stone/Marble solid background for chart
-        self.ax.set_facecolor('#F4F1EA')
-        self.figure.patch.set_facecolor('#FFFFFF')
-        
-        labels = trend_data['labels']
-        values = trend_data['values']
-        
-        if not values or all(v == 0 for v in values):
-            # Zero State Handling
-            self.ax.text(0.5, 0.5, "No Data Available", horizontalalignment='center', verticalalignment='center', transform=self.ax.transAxes, fontsize=14, color='#94A3B8')
-            self.ax.set_ylim(0, 100)
+    def refresh_dashboard(self, time_period):
+        try:
+            # Map dropdown text to db function parameter
+            period_map = {
+                'Today': 'Today',
+                'Weekly': 'Last Week',
+                'Monthly': 'Last Month',
+                'Overall': 'All Time'
+            }
+            db_period = period_map.get(time_period, 'Today')
             
-        # Professional Wood-Colored Line Chart (matching Image 2)
-        self.ax.plot(labels, values, color='#8B4513', linewidth=4, marker='o', 
-                    markerfacecolor='#D2B48C', markeredgecolor='white', markersize=10)
-
-        
-        # Styling
-        self.ax.tick_params(axis='x', colors='#636E72', labelsize=10)
-        self.ax.tick_params(axis='y', colors='#636E72', labelsize=10)
-        self.ax.spines['top'].set_visible(False)
-        self.ax.spines['right'].set_visible(False)
-        self.ax.spines['bottom'].set_color('#E0E0E0')
-        self.ax.spines['left'].set_color('#E0E0E0')
-        
-        # Smooth line shadow (Subtle effect)
-        self.ax.fill_between(labels, values, color='#8B4513', alpha=0.1)
-        
-        self.canvas.draw()
-
-    def update_alerts(self, stock_items):
-        self.alert_list.clear()
-        
-        # Fetch Top items for activity list
-        from database.db_handler import get_top_items
-        top_sold = get_top_items("Today", 5)
-        
-        for name, qty in top_sold:
-            self.alert_list.addItem(f"✅ SOLD: {name} (x{qty})")
+            # Fetch fresh stats
+            stats = get_consolidated_stats(CURRENT_SHOP_ID, db_period)
             
-        for name, qty in stock_items:
-            self.alert_list.addItem(f"⚠️ LOW STOCK: {name} ({qty} left)")
+            # Update Row 1 cards
+            revenue = stats.get('total_sales', 0.0)
+            expenses = stats.get('total_expenses', 0.0)
+            self.revenue_value_lbl.setText(f"Rs. {revenue:,.0f}")
+            self.expense_value_lbl.setText(f"Rs. {expenses:,.0f}")
+            
+            # Update Row 2 cards
+            product_sales = stats.get('total_sales', 0.0) - stats.get('repair_revenue', 0.0)
+            repair_income = stats.get('repair_revenue', 0.0)
+            net_profit = stats.get('net_profit', 0.0)
+            
+            self.product_sales_lbl.setText(f"Rs. {max(product_sales, 0):,.0f}")
+            self.repair_income_lbl.setText(f"Rs. {repair_income:,.0f}")
+            
+            if net_profit >= 0:
+                self.net_profit_lbl.setText(f"▲  Rs. {net_profit:,.0f}")
+                self.net_profit_lbl.setStyleSheet("font-size: 20px; font-weight: 900; color: #10B981;")
+            else:
+                self.net_profit_lbl.setText(f"▼  Rs. {abs(net_profit):,.0f}")
+                self.net_profit_lbl.setStyleSheet("font-size: 20px; font-weight: 900; color: #EF4444;")
+            
+            # Update chart
+            self.update_chart(time_period)
+            
+            # Update alerts panel
+            self.build_alerts_panel()
+            
+            # Update navbar subtitle
+            subtitle_map = {
+                'Today': "Showing today's performance 📅",
+                'Weekly': "Showing last 7 days 📅",
+                'Monthly': "Showing last 30 days 📅",
+                'Overall': "Showing all time data 📅"
+            }
+            if hasattr(self, 'navbar_subtitle'):
+                self.navbar_subtitle.setText(subtitle_map.get(time_period, "Welcome back, Admin 👋"))
+            
+            # Also update tables
+            self.refresh_all_dashboard_data(time_period)
+                
+        except Exception as e:
+            print(f"Dashboard refresh error: {e}")
+
+    def build_alerts_panel(self):
+        alerts = get_recent_stock_alerts()
         
-        if self.alert_list.count() == 0:
-            self.alert_list.addItem("✅ System Idle - No alerts")
+        # Clear existing items in scroll widget layout
+        while self.alerts_layout.count():
+            child = self.alerts_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        
+        if not alerts:
+            empty_lbl = QLabel("✅ All systems normal")
+            empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty_lbl.setStyleSheet("color: #10B981; font-size: 14px; font-weight: 600; padding: 20px;")
+            self.alerts_layout.addWidget(empty_lbl)
+            return
+        
+        for alert_type, name, detail in alerts:
+            item = QFrame()
+            if alert_type == 'low_stock':
+                item.setStyleSheet("""
+                    QFrame {
+                        background: #FFF7ED;
+                        border-left: 3px solid #F59E0B;
+                        border-radius: 10px;
+                        padding: 2px;
+                    }
+                """)
+                icon = "⚠️"
+            else:
+                item.setStyleSheet("""
+                    QFrame {
+                        background: #F0FDF4;
+                        border-left: 3px solid #10B981;
+                        border-radius: 10px;
+                        padding: 2px;
+                    }
+                """)
+                icon = "✅"
+            
+            item_layout = QVBoxLayout(item)
+            item_layout.setContentsMargins(12, 10, 12, 10)
+            item_layout.setSpacing(2)
+            
+            name_lbl = QLabel(f"{icon} {name}")
+            name_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #1E293B; background: transparent;")
+            
+            detail_lbl = QLabel(detail)
+            detail_lbl.setStyleSheet("font-size: 11px; color: #64748B; background: transparent;")
+            
+            item_layout.addWidget(name_lbl)
+            item_layout.addWidget(detail_lbl)
+            
+            self.alerts_layout.addWidget(item)
+        
+        self.alerts_layout.addStretch()
+
+    def update_chart(self, time_period):
+        try:
+            from matplotlib.ticker import FuncFormatter
+            import numpy as np
+            labels, sales_values, expense_values = get_chart_data(time_period)
+            self.chart_axes.clear()
+            
+            # Title
+            title_map = {
+                'Today': "📈 Today's Sales Analytics",
+                'Weekly': "📈 Weekly Performance Trend",
+                'Monthly': "📈 Monthly Revenue Overview",
+                'Overall': "📈 Life-Time Sales Analytics"
+            }
+            if hasattr(self, 'sales_chart_title'):
+                self.sales_chart_title.setText(title_map.get(time_period, "📈 Sales Analytics"))
+
+            # Background
+            self.chart_axes.set_facecolor('#FAFBFF')
+            self.chart_figure.patch.set_facecolor('#FAFBFF')
+            
+            # 3. Shaded Profit/Loss Zone (Green for profit, red for loss)
+            x_range = range(len(labels))
+            s_arr = np.array(sales_values)
+            e_arr = np.array(expense_values)
+            self.chart_axes.fill_between(x_range, sales_values, expense_values, where=(s_arr > e_arr), 
+                                         interpolate=True, color='#10B981', alpha=0.06, label='Profit Zone')
+            self.chart_axes.fill_between(x_range, sales_values, expense_values, where=(s_arr <= e_arr), 
+                                         interpolate=True, color='#EF4444', alpha=0.06, label='Loss Zone')
+            
+            # Core Lines
+            self.chart_axes.plot(labels, sales_values, color='#3A8DFF', linewidth=2.0, label="Revenue")
+            self.chart_axes.plot(labels, expense_values, color='#EF4444', linewidth=2.0, label="Expenses")
+            
+            # 4. Average Revenue Line
+            if sales_values:
+                avg_rev = sum(sales_values) / len(sales_values)
+                self.chart_axes.axhline(avg_rev, color='#3A8DFF', alpha=0.3, linewidth=1, linestyle='--')
+                self.chart_axes.text(len(labels)-1, avg_rev, 'Avg Revenue', color='#3A8DFF', fontsize=7, 
+                                     va='bottom', ha='right', alpha=0.5, fontweight='bold')
+
+            # 1. Peak Annotations
+            if sales_values and max(sales_values) > 0:
+                mx_r = max(sales_values)
+                mx_r_idx = sales_values.index(mx_r)
+                self.chart_axes.annotate(f"Peak: Rs.{mx_r:,.0f}", xy=(mx_r_idx, mx_r), xytext=(0, 10),
+                                         textcoords='offset points', ha='center', fontsize=8, color='#3A8DFF',
+                                         fontweight='bold', arrowprops=dict(arrowstyle='->', color='#3A8DFF', lw=0.5))
+                self.chart_axes.plot(mx_r_idx, mx_r, 'o', markersize=4, color='#3A8DFF')
+
+            if expense_values and max(expense_values) > 0:
+                mx_e = max(expense_values)
+                mx_e_idx = expense_values.index(mx_e)
+                self.chart_axes.annotate(f"High Expense: Rs.{mx_e:,.0f}", xy=(mx_e_idx, mx_e), xytext=(0, 10),
+                                         textcoords='offset points', ha='center', fontsize=8, color='#EF4444',
+                                         fontweight='bold', arrowprops=dict(arrowstyle='->', color='#EF4444', lw=0.5))
+                self.chart_axes.plot(mx_e_idx, mx_e, 'o', markersize=4, color='#EF4444')
+
+            # 2. Summary Stats Bar (Top Left axes text)
+            total_rev = sum(sales_values)
+            total_exp = sum(expense_values)
+            net_val = total_rev - total_exp
+            stats_str = f"Total Revenue: Rs.{total_rev:,.0f}  |  Total Expenses: Rs.{total_exp:,.0f}  |  Net: Rs.{net_val:,.0f}"
+            self.chart_axes.text(0.02, 0.96, stats_str, transform=self.chart_axes.transAxes, fontsize=8, 
+                                 color='#64748B', fontweight='600', bbox=dict(facecolor='white', alpha=0.9, edgecolor='none', boxstyle='round,pad=0.4'))
+
+            # Stylings
+            indices = range(len(labels))
+            visible_indices = [i for i in indices if i % 3 == 0]
+            visible_labels = [labels[i] for i in visible_indices]
+            self.chart_axes.set_xticks(visible_indices)
+            self.chart_axes.set_xticklabels(visible_labels, rotation=0, fontsize=9, color='#94A3B8')
+            
+            self.chart_axes.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"Rs.{int(x):,}"))
+            self.chart_axes.tick_params(axis='y', labelsize=9, labelcolor='#94A3B8')
+            self.chart_axes.yaxis.grid(True, color='#EEF0F6', linewidth=0.6, linestyle='dashed')
+            for spine in self.chart_axes.spines.values():
+                spine.set_visible(False)
+            
+            self.chart_figure.tight_layout(pad=1.2)
+            self.chart_canvas.draw()
+        except Exception as e:
+            print(f"Chart update error: {e}")
 
     def refresh_all_dashboard_data(self, period):
         """Master function to refresh stats, top items, and transaction history."""
         try:
             self.refresh_financials(period)
             self.refresh_top_selling_items(period)
-            self.refresh_history_table(period)
         except Exception as e:
             print(f"Safety Check: Dashboard Refresh Failed Triggered: {e}")
 
@@ -338,171 +572,894 @@ class AdminDashboard(QMainWindow):
         from PyQt6.QtCore import QEvent
         if event.type() == QEvent.Type.WindowActivate:
             # Refresh using currently selected filter for FULL DATA (Charts + Tables)
-            self.refresh_dashboard()
+            if hasattr(self, 'period_dropdown'):
+                self.refresh_dashboard(self.period_dropdown.currentText())
         return super().event(event)
-
 
     def setup_shared_navbar(self):
         nav_frame = QFrame()
-        nav_frame.setFixedHeight(80)
-        nav_frame.setObjectName("Navbar") # Inherits Neumorphic White Card style
+        nav_frame.setFixedHeight(70)
+        nav_frame.setStyleSheet("""
+            QFrame {
+                background-color: #FFFFFF;
+                border-bottom: 1px solid #E2E8F0;
+                border-radius: 0px;
+            }
+        """)
+        
+        # Add shadow
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(8)
+        shadow.setYOffset(2)
+        shadow.setXOffset(0)
+        shadow.setColor(QColor(0, 0, 0, 15)) # rgba(0,0,0,0.06) is ~15 in alpha
+        nav_frame.setGraphicsEffect(shadow)
+        
         nav_layout = QHBoxLayout(nav_frame)
-        nav_layout.setContentsMargins(20, 0, 20, 0)
+        nav_layout.setContentsMargins(30, 0, 30, 0)
         
-        # Left: Search or Title (Optional, keeping it clean)
-        title_lbl = QLabel("Dashboard Overview")
-        title_lbl.setStyleSheet("font-size: 22px; font-weight: 800; color: #1E293B;")
-        nav_layout.addWidget(title_lbl)
+        # LEFT SIDE
+        left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(0, 10, 0, 10)
+        left_layout.setSpacing(2)
+        left_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         
+        self.nav_title = QLabel("Dashboard")
+        self.nav_title.setStyleSheet("font-size: 20px; font-weight: 800; color: #1E293B; border: none; background: transparent;")
+        
+        self.navbar_subtitle = QLabel("Welcome back, Admin 👋")
+        self.navbar_subtitle.setStyleSheet("font-size: 12px; color: #64748B; border: none; background: transparent;")
+        
+        left_layout.addWidget(self.nav_title)
+        left_layout.addWidget(self.navbar_subtitle)
+        
+        nav_layout.addLayout(left_layout)
         nav_layout.addStretch()
         
-        # Middle-Right: Period Dropdown
-        p_lbl = QLabel("Period:")
-        p_lbl.setStyleSheet("color: #636E72; font-weight: bold; font-size: 13px;")
-        self.filter_combo = QComboBox()
-        self.filter_combo.addItems(["Last Week", "Month", "Last 6 Months", "All Time"])
-        self.filter_combo.setFixedWidth(160)
-        self.filter_combo.currentTextChanged.connect(self.refresh_all_dashboard_data)
+        # RIGHT SIDE
         
-        nav_layout.addWidget(p_lbl)
-        nav_layout.addWidget(self.filter_combo)
-        nav_layout.addSpacing(25)
+        # Item 1: Dropdown
+        self.period_dropdown = QComboBox()
+        self.period_dropdown.addItems(["Today", "Weekly", "Monthly", "Overall"])
+        self.period_dropdown.setMinimumWidth(150)
+        self.period_dropdown.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.period_dropdown.setStyleSheet("""
+            QComboBox {
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
+                border-radius: 12px;
+                padding: 10px 40px 10px 20px;
+                font-weight: 700;
+                color: #1E293B;
+                font-size: 13px;
+            }
+            QComboBox:hover {
+                border-color: #3A8DFF;
+                background-color: #F8FAFC;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 40px;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 5px solid #64748B;
+                margin-right: 20px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                border: 1px solid #E2E8F0;
+                border-radius: 12px;
+                selection-background-color: #F1F5F9;
+                selection-color: #3A8DFF;
+                padding: 8px;
+            }
+        """)
+        # Subtle Shadow for Dropdown
+        drop_shadow = QGraphicsDropShadowEffect()
+        drop_shadow.setBlurRadius(10)
+        drop_shadow.setYOffset(2)
+        drop_shadow.setColor(QColor(0, 0, 0, 15))
+        self.period_dropdown.setGraphicsEffect(drop_shadow)
+        self.period_dropdown.currentTextChanged.connect(self.on_period_changed)
+        nav_layout.addWidget(self.period_dropdown)
+        nav_layout.addSpacing(15)
         
-        # Right: Settings & Logout Icons
-        self.quick_settings = QPushButton("⚙️")
-        self.quick_settings.setFixedSize(45, 45)
-        self.quick_settings.setObjectName("NavbarIcon")
-        self.quick_settings.setStyleSheet("QPushButton { background-color: #F8F9FA; border-radius: 22px; font-size: 18px; border: 1px solid #E0E0E0; }")
-        self.quick_settings.clicked.connect(self.open_settings)
+        # Item 2: Notification Bell
+        self.btn_notif = QPushButton("🔔")
+        self.btn_notif.setFixedSize(42, 42)
+        self.btn_notif.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_notif.setStyleSheet("""
+            QPushButton {
+                background-color: #F8FAFC;
+                border-radius: 21px;
+                font-size: 18px;
+                border: 1px solid #E2E8F0;
+                color: #64748B;
+            }
+            QPushButton:hover { 
+                background-color: #FFFFFF; 
+                border-color: #3A8DFF;
+                color: #3A8DFF;
+            }
+        """)
+        self.btn_notif.clicked.connect(self.show_notifications)
         
-        self.quick_logout = QPushButton("🚪")
-        self.quick_logout.setFixedSize(45, 45)
-        self.quick_logout.setStyleSheet("QPushButton { background-color: #FFF5F5; border-radius: 22px; font-size: 18px; border: 1px solid #FFEBEB; }")
-        self.quick_logout.clicked.connect(self.logout)
+        # Notification Badge
+        self.notif_badge = QLabel(self.btn_notif)
+        self.notif_badge.setFixedSize(10, 10)
+        self.notif_badge.setStyleSheet("background-color: #EF4444; border-radius: 5px; border: 2px solid #FFFFFF;")
+        self.notif_badge.move(28, 5) 
+        self.notif_badge.hide()
         
-        nav_layout.addWidget(self.quick_settings)
-        nav_layout.addSpacing(10)
-        nav_layout.addWidget(self.quick_logout)
-        nav_layout.addSpacing(25)
+        nav_layout.addWidget(self.btn_notif)
+        nav_layout.addSpacing(15)
         
-        # Far Right: Profile Section
-        profile_layout = QVBoxLayout()
-        profile_layout.setSpacing(0)
-        profile_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        name_lbl = QLabel("Faizan Khan")
-        name_lbl.setStyleSheet("font-weight: 800; font-size: 14px; color: #1E293B;")
-        role_lbl = QLabel("System Admin")
-        role_lbl.setStyleSheet("font-size: 11px; color: #94A3B8; font-weight: bold;")
-        
-        profile_layout.addWidget(name_lbl)
-        profile_layout.addWidget(role_lbl)
-        
-        self.avatar = QLabel()
-        self.avatar.setFixedSize(45, 45)
-        self.avatar.setStyleSheet("background-color: #E6E9EE; border-radius: 22px; border: 2px solid #FFFFFF;")
-        # Note: Set pixmap here if an image exists
-        
-        nav_layout.addLayout(profile_layout)
-        nav_layout.addSpacing(10)
-        nav_layout.addWidget(self.avatar)
+        # Item 3: Logout
+        self.btn_logout = QPushButton("🚪 Logout")
+        self.btn_logout.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_logout.setFixedHeight(42)
+        self.btn_logout.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(239, 68, 68, 0.08);
+                color: #B91C1C;
+                border-radius: 21px;
+                padding: 0px 24px;
+                font-weight: 700;
+                border: 1px solid rgba(239, 68, 68, 0.15);
+                font-size: 13px;
+            }
+            QPushButton:hover { 
+                background-color: #EF4444; 
+                color: #FFFFFF;
+                border: none;
+            }
+        """)
+        self.btn_logout.clicked.connect(self.handle_logout_click)
+        nav_layout.addWidget(self.btn_logout)
         
         self.main_layout.addWidget(nav_frame)
+        self.update_notification_badge()
+
+
+    def build_history_page(self):
+        """Builds the transaction history page content."""
+        widget = self.stack.widget(1)
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(16)
+        
+        # Summary row
+        self.history_summary_lbl = QLabel("Total Records: 0  |  Total Revenue: Rs. 0  |  Total Expenses: Rs. 0")
+        self.history_summary_lbl.setStyleSheet("""
+            background-color: #F8FAFF;
+            border-radius: 10px;
+            padding: 10px 20px;
+            font-size: 12px;
+            color: #64748B;
+            border: 1px solid #E2E8F0;
+        """)
+        layout.addWidget(self.history_summary_lbl)
+
+        # Search and filter row
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(12)
+        
+        self.history_search = QLineEdit()
+        self.history_search.setPlaceholderText("Search by customer name or description...")
+        self.history_search.setFixedHeight(45)
+        self.history_search.setStyleSheet("""
+            QLineEdit {
+                background-color: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 12px;
+                padding: 10px 20px;
+                font-size: 14px;
+                color: #1E293B;
+            }
+            QLineEdit:focus {
+                border-color: #3B82F6;
+                background-color: #FFFFFF;
+            }
+        """)
+        
+        self.history_type_filter = QComboBox()
+        self.history_type_filter.addItems(["All Types", "Sale", "Repair", "Expense", "Stock"])
+        self.history_type_filter.setFixedHeight(45)
+        self.history_type_filter.setMinimumWidth(150)
+        self.history_type_filter.setStyleSheet("""
+            QComboBox {
+                background-color: #F8FAFC;
+                border: 1px solid #E2E8F0;
+                border-radius: 12px;
+                padding: 10px 20px;
+                font-size: 14px;
+                color: #1E293B;
+            }
+        """)
+        
+        controls_layout.addWidget(self.history_search, 4)
+        controls_layout.addWidget(self.history_type_filter, 1)
+        layout.addLayout(controls_layout)
+        
+        # Debounce Timer for search
+        self.search_debounce_timer = QTimer()
+        self.search_debounce_timer.setSingleShot(True)
+        self.search_debounce_timer.timeout.connect(self.load_history_data)
+        self.history_search.textChanged.connect(lambda: self.search_debounce_timer.start(300))
+        
+        self.history_type_filter.currentIndexChanged.connect(self.load_history_data)
+        
+        # History Table
+        self.history_table = QTableWidget(0, 5)
+        self.history_table.setHorizontalHeaderLabels(["Customer", "Type", "Description", "Amount", "Date"])
+        self.history_table.verticalHeader().setVisible(False)
+        self.history_table.horizontalHeader().setStretchLastSection(True)
+        self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.history_table.setShowGrid(False)
+        self.history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.history_table.setAlternatingRowColors(True)
+        self.history_table.verticalHeader().setDefaultSectionSize(44)
+        self.history_table.setStyleSheet("""
+            QTableWidget {
+                background-color: white;
+                border-radius: 16px;
+                border: 1px solid #E2E8F0;
+                font-size: 13px;
+                gridline-color: transparent;
+                alternate-background-color: #FAFBFF;
+            }
+            QTableWidget::item {
+                padding: 12px;
+                border: none;
+            }
+            QTableWidget::item:hover {
+                background-color: #F0F7FF;
+            }
+            QHeaderView::section {
+                background-color: #FFFFFF;
+                font-weight: 800;
+                color: #1E293B;
+                padding: 12px;
+                border: none;
+                border-bottom: 2px solid #F0F2F5;
+            }
+        """)
+        
+        layout.addWidget(self.history_table)
+        
+        # Initial data load
+        self.load_history_data()
+
+    def load_history_data(self):
+        """Fetches and populates history data with local filtering."""
+        period_text = self.period_dropdown.currentText()
+        period_map = {
+            'Today': 'Today',
+            'Weekly': 'Last Week',
+            'Monthly': 'Last Month',
+            'Overall': 'All Time'
+        }
+        mapped_period = period_map.get(period_text, 'Today')
+        
+        # Fetch from DB
+        results = get_history_data(mapped_period)
+        
+        search_text = self.history_search.text().strip().lower()
+        type_filter = self.history_type_filter.currentText()
+        
+        # Filter results
+        filtered_results = []
+        for row in results:
+            r_cust, r_type, r_desc, r_amt, r_date = row
+            
+            # Type filter
+            if type_filter != "All Types" and r_type != type_filter:
+                continue
+                
+            # Search filter
+            if search_text and search_text not in r_desc.lower():
+                continue
+                
+            filtered_results.append(row)
+            
+        # Clear and repopulate
+        self.history_table.setRowCount(0)
+        
+        if not filtered_results:
+            self.history_table.setRowCount(1)
+            item = QTableWidgetItem("No records found for this period")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setForeground(QColor("#64748B"))
+            self.history_table.setItem(0, 0, item)
+            self.history_table.setSpan(0, 0, 1, 5)
+            self.history_summary_lbl.setText("Total Records: 0  |  Total Revenue: Rs. 0  |  Total Expenses: Rs. 0")
+            return
+
+        total_rev = 0
+        total_exp = 0
+        
+        for row_idx, row_data in enumerate(filtered_results):
+            self.history_table.insertRow(row_idx)
+            r_cust, r_type, r_desc, r_amt, r_date = row_data
+            
+            # Update summary counts
+            if r_type in ["Sale", "Repair"]:
+                total_rev += float(r_amt or 0)
+            elif r_type == "Expense":
+                total_exp += float(r_amt or 0)
+
+            # Column 0: Customer
+            cust_item = QTableWidgetItem(r_cust.title() if r_cust else "")
+            cust_item.setForeground(QColor("#1E293B"))
+            cust_item.setFont(QFont("Segoe UI", 10))
+            cust_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.history_table.setItem(row_idx, 0, cust_item)
+            
+            # Column 1: Type (Simplified Pills)
+            badge_container = QWidget()
+            badge_layout = QHBoxLayout(badge_container)
+            badge_layout.setContentsMargins(0, 0, 0, 0)
+            badge_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            badge = QLabel()
+            badge_config = {
+                "Sale": ("SALES", "#E0F2FE", "#0369A1"),
+                "Repair": ("REPAIR", "#FEF3C7", "#92400E"),
+                "Expense": ("EXPENSE", "#FEE2E2", "#991B1B"),
+                "Stock": ("STOCK", "#DCFCE7", "#15803D")
+            }
+            type_label, bg, fg = badge_config.get(r_type, (r_type.upper(), "#F1F5F9", "#64748B"))
+            display_text = f"● {type_label}"
+            
+            badge.setText(display_text)
+            badge.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {bg};
+                    color: {fg};
+                    border-radius: 10px;
+                    padding: 4px 10px;
+                    font-weight: 800;
+                    font-size: 10px;
+                    font-family: 'Segoe UI', sans-serif;
+                }}
+            """)
+            badge_layout.addWidget(badge)
+            self.history_table.setCellWidget(row_idx, 1, badge_container)
+            
+            # Column 2: Description
+            desc_item = QTableWidgetItem(r_desc.title() if r_desc else "")
+            desc_item.setForeground(QColor("#64748B"))
+            desc_item.setFont(QFont("Segoe UI", 10))
+            desc_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.history_table.setItem(row_idx, 2, desc_item)
+            
+            # Column 3: Amount
+            if r_type == "Stock":
+                amt_str = f"{r_amt} Units"
+                amt_color = "#3B82F6"
+            else:
+                amt_str = f"Rs. {r_amt:,.0f}"
+                amt_color = "#EF4444" if r_type == "Expense" else "#10B981"
+                
+            amt_item = QTableWidgetItem(amt_str)
+            amt_item.setForeground(QColor(amt_color))
+            amt_item.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+            amt_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.history_table.setItem(row_idx, 3, amt_item)
+            
+            # Column 4: Date
+            try:
+                if isinstance(r_date, str):
+                    dt_obj = datetime.strptime(r_date, "%Y-%m-%d %H:%M:%S")
+                else:
+                    dt_obj = r_date
+                formatted_date = dt_obj.strftime("%d %b %Y, %H:%M")
+            except:
+                formatted_date = str(r_date)
+                
+            date_item = QTableWidgetItem(formatted_date)
+            date_item.setForeground(QColor("#94A3B8"))
+            date_item.setFont(QFont("Segoe UI", 9))
+            date_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.history_table.setItem(row_idx, 4, date_item)
+
+        self.history_summary_lbl.setText(f"Total Records: {len(filtered_results)}  |  Total Revenue: Rs. {total_rev:,.0f}  |  Total Expenses: Rs. {total_exp:,.0f}")
+
+    def build_reports_page(self):
+        """Builds the Reports page UI."""
+        layout = QVBoxLayout(self.reports_page)
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(20)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        # 1. Main Card
+        report_card = QFrame()
+        report_card.setObjectName("ReportCard")
+        report_card.setStyleSheet("""
+            QFrame#ReportCard {
+                background-color: white;
+                border-radius: 20px;
+                border: 1px solid #E2E8F0;
+            }
+        """)
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(20)
+        shadow.setXOffset(0)
+        shadow.setYOffset(4)
+        shadow.setColor(QColor(0, 0, 0, 20))
+        report_card.setGraphicsEffect(shadow)
+        
+        card_layout = QVBoxLayout(report_card)
+        card_layout.setContentsMargins(30, 30, 30, 30)
+        card_layout.setSpacing(16)
+
+        # Header Title & Subtitle
+        title = QLabel("📋 Generate Business Report")
+        title.setStyleSheet("font-size: 20px; font-weight: 800; color: #1E293B;")
+        
+        subtitle = QLabel("Select a date range to generate your detailed business report")
+        subtitle.setStyleSheet("font-size: 13px; color: #64748B; margin-top: -5px;")
+        
+        card_layout.addWidget(title)
+        card_layout.addWidget(subtitle)
+
+        # 2. Quick Select Section
+        quick_label = QLabel("Quick Select")
+        quick_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1E293B; margin-top: 10px;")
+        card_layout.addWidget(quick_label)
+        
+        quick_layout = QHBoxLayout()
+        quick_layout.setSpacing(10)
+        
+        self.report_quick_btns = []
+        quick_options = [
+            ("📅 Today", 0),
+            ("📅 Yesterday", 1),
+            ("📅 Day Before", 2),
+            ("📆 This Week", 'week'),
+            ("📆 This Month", 'month')
+        ]
+        
+        for text, key in quick_options:
+            btn = QPushButton(text)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedHeight(38)
+            btn.setStyleSheet(self.get_quick_btn_style(False))
+            btn.clicked.connect(lambda checked, b=btn, k=key: self.handle_quick_report_date(b, k))
+            quick_layout.addWidget(btn)
+            self.report_quick_btns.append(btn)
+            
+        card_layout.addLayout(quick_layout)
+
+        # 3. Custom Date Range Section
+        custom_label = QLabel("Custom Date Range")
+        custom_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1E293B; margin-top: 16px;")
+        card_layout.addWidget(custom_label)
+        
+        date_range_layout = QHBoxLayout()
+        date_range_layout.setSpacing(20)
+        
+        # From Date
+        from_container = QVBoxLayout()
+        from_lbl = QLabel("From:")
+        from_lbl.setStyleSheet("font-size: 11px; color: #64748B; margin-bottom: 2px;")
+        self.report_from_date = QDateEdit()
+        self.report_from_date.setCalendarPopup(True)
+        self.report_from_date.setDate(QDate.currentDate())
+        self.report_from_date.setFixedWidth(180)
+        from_container.addWidget(from_lbl)
+        from_container.addWidget(self.report_from_date)
+        
+        # To Date
+        to_container = QVBoxLayout()
+        to_lbl = QLabel("To:")
+        to_lbl.setStyleSheet("font-size: 11px; color: #64748B; margin-bottom: 2px;")
+        self.report_to_date = QDateEdit()
+        self.report_to_date.setCalendarPopup(True)
+        self.report_to_date.setDate(QDate.currentDate())
+        self.report_to_date.setFixedWidth(180)
+        to_container.addWidget(to_lbl)
+        to_container.addWidget(self.report_to_date)
+        
+        date_range_layout.addLayout(from_container)
+        date_range_layout.addLayout(to_container)
+        date_range_layout.addStretch()
+        
+        # Styling for DateEdits
+        date_edit_style = """
+            QDateEdit {
+                background-color: white;
+                border: 1px solid #E2E8F0;
+                border-radius: 10px;
+                padding: 8px 14px;
+                font-size: 13px;
+                color: #1E293B;
+            }
+            QDateEdit::drop-down {
+                border: none;
+                width: 20px;
+            }
+        """
+        self.report_from_date.setStyleSheet(date_edit_style)
+        self.report_to_date.setStyleSheet(date_edit_style)
+        
+        # Connect changes
+        self.report_from_date.dateChanged.connect(self.deactivate_quick_btns)
+        self.report_to_date.dateChanged.connect(self.deactivate_quick_btns)
+        
+        card_layout.addLayout(date_range_layout)
+
+        # 4. Report Format Section
+        format_label = QLabel("Report Format")
+        format_label.setStyleSheet("font-size: 12px; font-weight: bold; color: #1E293B; margin-top: 16px;")
+        card_layout.addWidget(format_label)
+        
+        format_layout = QHBoxLayout()
+        format_layout.setSpacing(12)
+        
+        self.selected_report_format = "PDF"
+        self.btn_pdf_format = QPushButton("📄 PDF Report")
+        self.btn_excel_format = QPushButton("📊 Excel Report")
+        
+        for btn in [self.btn_pdf_format, self.btn_excel_format]:
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedHeight(40)
+            btn.setFixedWidth(160)
+        
+        self.btn_pdf_format.clicked.connect(lambda: self.set_report_format("PDF"))
+        self.btn_excel_format.clicked.connect(lambda: self.set_report_format("Excel"))
+        
+        self.update_format_btn_styles()
+        
+        format_layout.addWidget(self.btn_pdf_format)
+        format_layout.addWidget(self.btn_excel_format)
+        format_layout.addStretch()
+        
+        card_layout.addLayout(format_layout)
+
+        # 5. Generate Button
+        card_layout.addSpacing(30)
+        
+        btn_container = QHBoxLayout()
+        self.generate_report_btn = QPushButton("⚡ Generate Report")
+        self.generate_report_btn.setFixedSize(300, 50)
+        self.generate_report_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.generate_report_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1B4D89;
+                color: white;
+                border-radius: 12px;
+                font-size: 14px;
+                font-weight: 700;
+            }
+            QPushButton:hover {
+                background-color: #3A8DFF;
+            }
+        """)
+        self.generate_report_btn.clicked.connect(self.generate_report)
+        btn_container.addStretch()
+        btn_container.addWidget(self.generate_report_btn)
+        btn_container.addStretch()
+        card_layout.addLayout(btn_container)
+        
+        # 6. Status Label
+        self.report_status_lbl = QLabel("")
+        self.report_status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.report_status_lbl.setStyleSheet("font-size: 12px; color: #64748B; margin-top: 10px;")
+        card_layout.addWidget(self.report_status_lbl)
+
+        layout.addWidget(report_card)
+        layout.addStretch()
+
+    def get_quick_btn_style(self, active):
+        if active:
+            return "QPushButton { background-color: #3A8DFF; color: white; border-radius: 10px; padding: 8px 16px; font-size: 12px; font-weight: 600; border: 1px solid #3A8DFF; }"
+        else:
+            return "QPushButton { background-color: #F8FAFC; color: #1E293B; border-radius: 10px; padding: 8px 16px; font-size: 12px; font-weight: 600; border: 1px solid #E2E8F0; } QPushButton:hover { background-color: #DBEAFE; color: #1D4ED8; border-color: #3A8DFF; }"
+
+    def handle_quick_report_date(self, btn, key):
+        for b in self.report_quick_btns:
+            b.setStyleSheet(self.get_quick_btn_style(b == btn))
+            
+        today = QDate.currentDate()
+        self.report_from_date.blockSignals(True)
+        self.report_to_date.blockSignals(True)
+        
+        if key == 0: # Today
+            self.report_from_date.setDate(today)
+            self.report_to_date.setDate(today)
+        elif key == 1: # Yesterday
+            yest = today.addDays(-1)
+            self.report_from_date.setDate(yest)
+            self.report_to_date.setDate(yest)
+        elif key == 2: # Day Before
+            db = today.addDays(-2)
+            self.report_from_date.setDate(db)
+            self.report_to_date.setDate(db)
+        elif key == 'week': # This Week
+            mon = today.addDays(-(today.dayOfWeek() - 1))
+            self.report_from_date.setDate(mon)
+            self.report_to_date.setDate(today)
+        elif key == 'month': # This Month
+            first = QDate(today.year(), today.month(), 1)
+            self.report_from_date.setDate(first)
+            self.report_to_date.setDate(today)
+            
+        self.report_from_date.blockSignals(False)
+        self.report_to_date.blockSignals(False)
+
+    def deactivate_quick_btns(self):
+        for btn in self.report_quick_btns:
+            btn.setStyleSheet(self.get_quick_btn_style(False))
+
+    def set_report_format(self, fmt):
+        self.selected_report_format = fmt
+        self.update_format_btn_styles()
+
+    def update_format_btn_styles(self):
+        active = "QPushButton { background-color: #1E293B; color: white; border-radius: 10px; padding: 8px 20px; font-weight: 600; }"
+        inactive = "QPushButton { background-color: #F8FAFC; color: #64748B; border-radius: 10px; padding: 8px 20px; border: 1px solid #E2E8F0; }"
+        self.btn_pdf_format.setStyleSheet(active if self.selected_report_format == "PDF" else inactive)
+        self.btn_excel_format.setStyleSheet(active if self.selected_report_format == "Excel" else inactive)
+
+    def generate_report(self):
+        from_date = self.report_from_date.date().toPyDate()
+        to_date = self.report_to_date.date().toPyDate()
+        
+        if from_date > to_date:
+            self.report_status_lbl.setText("❌ Error: 'From' date cannot be after 'To' date")
+            self.report_status_lbl.setStyleSheet("font-size: 12px; color: #EF4444; margin-top: 10px;")
+            return
+            
+        self.report_status_lbl.setText("⏳ Generating report...")
+        self.report_status_lbl.setStyleSheet("font-size: 12px; color: #F59E0B; margin-top: 10px;")
+        self.generate_report_btn.setEnabled(False)
+        
+        self.worker = ReportWorker(from_date, to_date, self.selected_report_format)
+        self.worker.report_done.connect(self.on_report_success)
+        self.worker.report_failed.connect(self.on_report_error)
+        self.worker.start()
+
+    def on_report_success(self, filepath):
+        self.generate_report_btn.setEnabled(True)
+        self.report_status_lbl.setText(f"✅ Report generated successfully!")
+        self.report_status_lbl.setStyleSheet("font-size: 12px; color: #10B981; margin-top: 10px;")
+        
+        import os
+        try:
+            os.startfile(os.path.abspath(filepath))
+        except:
+            pass
+
+    def on_report_error(self, error):
+        self.generate_report_btn.setEnabled(True)
+        self.report_status_lbl.setText(f"❌ Error: {error}")
+        self.report_status_lbl.setStyleSheet("font-size: 12px; color: #EF4444; margin-top: 10px;")
+
+    def on_period_changed(self, text):
+        self.refresh_dashboard(text)
+        if hasattr(self, 'history_table') and self.stack.currentIndex() == 1:
+            self.load_history_data()
+
+    def show_notifications(self):
+        pass
+
+    def auto_refresh(self):
+        current_period = self.period_dropdown.currentText()
+        self.refresh_dashboard(current_period)
+
+    def update_notification_badge(self):
+        try:
+            from database.db_handler import get_notifications
+            notes = get_notifications()
+            if hasattr(self, 'notif_badge'):
+                if len(notes) > 0:
+                    self.notif_badge.show()
+                else:
+                    self.notif_badge.hide()
+        except Exception:
+            pass
+
+    def handle_logout_click(self):
+        reply = QMessageBox.question(self, 'Logout', 'Are you sure you want to logout?',
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                     QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            self.logout_clicked.emit()
 
     def setup_stats_cards(self):
         self.cards_layout = QHBoxLayout()
-        self.cards_layout.setSpacing(25)
+        self.cards_layout.setSpacing(20)
         
-        self.sales_val = self.create_stat_card("Today's Sales", "#10B981", "💰")
-        self.repairs_val = self.create_stat_card("Total Repairs", "#3B82F6", "🔧")
-        self.profit_val = self.create_stat_card("Profit (Month)", "#F59E0B", "✨")
-        self.stock_val = self.create_stat_card("Available Stock", "#EF4444", "📦")
+        def create_finance_card(title, value, color, icon, icon_bg):
+            card = QFrame()
+            card.setObjectName("FinanceCard")
+            card.setFixedHeight(105)
+            card.setStyleSheet(f"""
+                QFrame#FinanceCard {{
+                    background: #FFFFFF;
+                    border-radius: 20px;
+                    border: none;
+                    border-top: 5px solid {color};
+                    padding: 10px;
+                }}
+            """)
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(20)
+            shadow.setXOffset(0)
+            shadow.setYOffset(4)
+            shadow.setColor(QColor(0, 0, 0, 20)) # 0.08 alpha
+            card.setGraphicsEffect(shadow)
+            
+            layout = QVBoxLayout(card)
+            layout.setContentsMargins(0, 0, 0, 0) # padding is inside the QFrame stylesheet
+            layout.setSpacing(2)
+            
+            top_layout = QHBoxLayout()
+            title_lbl = QLabel(title)
+            title_lbl.setStyleSheet("font-size: 11px; color: #64748B; font-weight: 600; background: transparent; border: none;")
+            
+            icon_lbl = QLabel(icon)
+            icon_lbl.setFixedSize(28, 28)
+            icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            icon_lbl.setStyleSheet(f"background-color: {icon_bg}; border-radius: 14px; font-size: 12px; border: none;")
+            
+            top_layout.addWidget(title_lbl)
+            top_layout.addStretch()
+            top_layout.addWidget(icon_lbl)
+            
+            val_lbl = QLabel(f"Rs. {value:,.0f}")
+            val_lbl.setStyleSheet(f"font-size: 22px; font-weight: 900; color: {color}; background: transparent; border: none;")
+            
+            layout.addLayout(top_layout)
+            layout.setStretch(1, 1) # Force stretch to keep layout compact
+            layout.addWidget(val_lbl)
+            
+            return card, val_lbl
+
+        try:
+            stats = get_consolidated_stats(CURRENT_SHOP_ID, 'Today')
+            rev = stats.get('total_sales', 0)
+            exp = stats.get('total_expenses', 0)
+        except Exception:
+            rev = 0
+            exp = 0
+
+        self.rev_card, self.revenue_value_lbl = create_finance_card(
+            "💰 Total Revenue", rev, "#10B981", "💰", "#D1FAE5"
+        )
+        
+        self.exp_card, self.expense_value_lbl = create_finance_card(
+            "📊 Total Expenses", exp, "#EF4444", "📊", "#FEE2E2"
+        )
+        
+        self.cards_layout.addWidget(self.rev_card)
+        self.cards_layout.addWidget(self.exp_card)
         
         self.dash_layout.addLayout(self.cards_layout)
 
-    def create_stat_card(self, title, color, icon):
-        card = QFrame()
-        card.setFixedHeight(140)
-        card.setObjectName("StatCard")
-        # Premium Styling: Thick left border for distinction
-        card.setStyleSheet(f"""
-            QFrame#StatCard {{ 
-                background-color: #FFFFFF; 
-                border-radius: 20px; 
-                border: 1px solid #E0E0E0;
-            }}
-        """)
+        # --- ROW 2: Product Sales, Repair Income, Net Profit ---
+        self.row2_layout = QHBoxLayout()
+        self.row2_layout.setSpacing(20)
+
+        def create_row2_card(title, value, color, icon, icon_bg, subtitle, is_profit=False):
+            card = QFrame()
+            card.setObjectName("Row2Card")
+            card.setFixedHeight(80)
+            card.setStyleSheet(f"QFrame#Row2Card {{ background: white; border-radius: 18px; border-top: 4px solid {color}; }}")
+            
+            shadow = QGraphicsDropShadowEffect()
+            shadow.setBlurRadius(16)
+            shadow.setXOffset(0)
+            shadow.setYOffset(4)
+            shadow.setColor(QColor(0, 0, 0, 18)) # 0.07 alpha
+            card.setGraphicsEffect(shadow)
+            
+            layout = QVBoxLayout(card)
+            layout.setContentsMargins(10, 10, 10, 10)
+            layout.setSpacing(2)
+            
+            top_layout = QHBoxLayout()
+            title_lbl = QLabel(title)
+            title_lbl.setStyleSheet("font-size: 11px; color: #64748B; font-weight: 600; border: none;")
+            
+            i_circle = QLabel(icon)
+            i_circle.setFixedSize(26, 26)
+            i_circle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            i_circle.setStyleSheet(f"background-color: {icon_bg}; border-radius: 13px; font-size: 12px; border: none;")
+            
+            top_layout.addWidget(title_lbl)
+            top_layout.addStretch()
+            top_layout.addWidget(i_circle)
+            
+            prefix = ""
+            if is_profit:
+                prefix = "▲  " if value >= 0 else "▼  "
+            
+            val_lbl = QLabel(f"{prefix}Rs. {value:,.0f}")
+            val_lbl.setStyleSheet(f"font-size: 20px; font-weight: 900; color: {color}; border: none;")
+            
+            sub_lbl = QLabel(subtitle)
+            sub_lbl.setStyleSheet("font-size: 10px; color: #94A3B8; border: none;")
+            
+            layout.addLayout(top_layout)
+            layout.addWidget(val_lbl)
+            layout.addStretch()
+            layout.addWidget(sub_lbl)
+            
+            return card, val_lbl, i_circle
+
+        try:
+            stats = get_consolidated_stats(CURRENT_SHOP_ID, 'Today')
+            rev_total = stats.get('total_sales', 0)
+            rep_rev = stats.get('repair_revenue', 0)
+            prod_rev = rev_total - rep_rev
+            net_prof = stats.get('net_profit', 0)
+        except Exception:
+            prod_rev = 0
+            rep_rev = 0
+            net_prof = 0
+
+        card1, self.product_sales_lbl, _ = create_row2_card(
+            "🛒 Product Sales", prod_rev, "#3A8DFF", "🛒", "#DBEAFE", "From stock sales"
+        )
         
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(25)
-        shadow.setColor(QColor(0, 0, 0, 20))
-        shadow.setYOffset(10)
-        card.setGraphicsEffect(shadow)
+        card2, self.repair_income_lbl, _ = create_row2_card(
+            "🔧 Repair Income", rep_rev, "#F59E0B", "🔧", "#FEF3C7", "From repair jobs"
+        )
         
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(25, 20, 25, 25)
-        card_layout.setSpacing(10)
+        prof_color = "#10B981" if net_prof >= 0 else "#EF4444"
+        prof_bg = "#D1FAE5" if net_prof >= 0 else "#FEE2E2"
+        self.net_profit_card, self.net_profit_lbl, self.net_profit_icon = create_row2_card(
+            "📈 Net Profit", net_prof, prof_color, "📈", prof_bg, "Revenue minus expenses", is_profit=True
+        )
         
-        title_lbl = QLabel(title.upper())
-        title_lbl.setStyleSheet("color: #94A3B8; font-size: 12px; font-weight: 800; letter-spacing: 1px;")
+        self.row2_layout.addWidget(card1)
+        self.row2_layout.addWidget(card2)
+        self.row2_layout.addWidget(self.net_profit_card)
         
-        value_layout = QHBoxLayout()
-        v_lbl = QLabel("...")
-        v_lbl.setStyleSheet("font-size: 28px; font-weight: 800; color: #1E293B;")
-        
-        i_lbl = QLabel(icon)
-        i_lbl.setFixedSize(50, 50)
-        i_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        i_lbl.setStyleSheet(f"""
-            QLabel {{ 
-                background-color: #F0F4F8; 
-                color: {color}; 
-                font-size: 24px; 
-                border-radius: 25px;
-            }}
-        """)
-        
-        value_layout.addWidget(v_lbl)
-        value_layout.addWidget(i_lbl)
-        value_layout.addStretch()
-        
-        card_layout.addWidget(title_lbl)
-        card_layout.addLayout(value_layout)
-        
-        self.cards_layout.addWidget(card)
-        
-        # Store for programmatic updates
-        if not hasattr(self, 'stat_widgets'):
-            self.stat_widgets = {}
-        self.stat_widgets[title] = v_lbl
-        
-        return v_lbl
+        self.dash_layout.addLayout(self.row2_layout)
 
     def setup_center_section(self):
         center_layout = QHBoxLayout()
-        center_layout.setSpacing(25)
+        center_layout.setSpacing(20)
+        center_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
         # --- LEFT SIDE: Weekly Sales Trend Chart ---
         chart_frame = QFrame()
-        chart_frame.setObjectName("MainContainer") # Apply White Card styling
-        chart_frame.setStyleSheet("QFrame#MainContainer { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 20px; }")
+        chart_frame.setObjectName("MainContainer")
+        chart_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        chart_frame.setMinimumHeight(320)
+        chart_frame.setStyleSheet("QFrame#MainContainer { background-color: #FAFBFF; border: 1px solid #E0E0E0; border-radius: 20px; }")
         chart_layout = QVBoxLayout(chart_frame)
         chart_layout.setContentsMargins(25, 25, 25, 25)
+        self.sales_chart_title = QLabel("📈 Sales & Revenue Analytics")
+        self.sales_chart_title.setStyleSheet("""
+            font-size: 20px; 
+            font-weight: 800; 
+            color: #1E293B; 
+            font-family: 'Segoe UI Semibold', sans-serif;
+            margin-bottom: 5px;
+        """)
+        chart_layout.addWidget(self.sales_chart_title)
+
         
-        c_title = QLabel("📊 Weekly Sales Trend")
-        c_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1E293B; margin-bottom: 10px;")
-        chart_layout.addWidget(c_title)
-        
-        self.figure = Figure(figsize=(5, 3), dpi=100)
-        self.canvas = FigureCanvas(self.figure)
-        self.ax = self.figure.add_subplot(111)
-        chart_layout.addWidget(self.canvas)
+        self.chart_figure = Figure(figsize=(5, 2.5), dpi=100)
+        self.chart_canvas = FigureCanvas(self.chart_figure)
+        self.chart_axes = self.chart_figure.add_subplot(111)
+        chart_layout.addWidget(self.chart_canvas)
         
         center_layout.addWidget(chart_frame, 2)
         
         # --- RIGHT SIDE: Alerts ---
         alert_frame = QFrame()
         alert_frame.setFixedWidth(380)
+        alert_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        alert_frame.setMinimumHeight(320)
         alert_frame.setObjectName("MainContainer")
         alert_frame.setStyleSheet("QFrame#MainContainer { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 25px; }")
         al_layout = QVBoxLayout(alert_frame)
@@ -512,44 +1469,49 @@ class AdminDashboard(QMainWindow):
         al_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1E293B; margin-bottom: 10px;")
         al_layout.addWidget(al_title)
         
-        from PyQt6.QtWidgets import QListWidget
-        self.alert_list = QListWidget()
-        self.alert_list.setStyleSheet("""
-            QListWidget { border: none; font-size: 14px; background: transparent; }
-            QListWidget::item { padding: 12px; border-bottom: 1px solid #F0F2F5; color: #44474B; }
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("""
+            QScrollArea { background: transparent; border: none; }
+            QScrollBar:vertical {
+                border: none;
+                background: transparent;
+                width: 6px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #D1D9E6;
+                border-radius: 3px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #3A8DFF;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+                height: 0px;
+            }
         """)
-        al_layout.addWidget(self.alert_list)
+        
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background: transparent;")
+        self.alerts_layout = QVBoxLayout(scroll_content)
+        self.alerts_layout.setContentsMargins(0, 0, 0, 0)
+        self.alerts_layout.setSpacing(10)
+        
+        scroll.setWidget(scroll_content)
+        al_layout.addWidget(scroll, 1)
         
         center_layout.addWidget(alert_frame, 1)
         self.dash_layout.addLayout(center_layout)
-        
-        # --- BOTTOM SECTION: DATA TABLES ---
-        self.analytics_card = QFrame()
-        self.analytics_card.setStyleSheet("QFrame { background-color: #FFFFFF; border: 1px solid #E0E0E0; border-radius: 15px; }")
-        ana_layout = QVBoxLayout(self.analytics_card)
-        ana_layout.setContentsMargins(25, 25, 25, 25)
-        
-        ana_title = QLabel("📜 Transaction & Expense History")
-        ana_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2D3436; margin-bottom: 10px;")
-        ana_layout.addWidget(ana_title)
-        
-        self.history_table = QTableWidget()
-        self.history_table.setColumnCount(4)
-        self.history_table.setHorizontalHeaderLabels(["Date", "Type", "Description", "Amount"])
-        self.history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self.history_table.verticalHeader().setVisible(False)
-        self.history_table.setShowGrid(False)
-        self.history_table.setFixedHeight(250)
-        self.history_table.setStyleSheet("""
-            QTableWidget { border: none; background-color: transparent; font-size: 14px; color: #2D3436; }
-            QHeaderView::section { background-color: #F8F9FA; color: #636E72; padding: 10px; border: none; font-weight: bold; }
-            QTableWidget::item { padding: 10px; border-bottom: 1px solid #F1F2F6; }
-        """)
-        ana_layout.addWidget(self.history_table)
-        self.dash_layout.addWidget(self.analytics_card)
 
     def setup_bottom_bar(self):
         bottom_row = QHBoxLayout()
+        bottom_row.setContentsMargins(0, 10, 20, 20)
         
         self.expense_btn = QPushButton("➕ Add Shop Expense")
         self.expense_btn.setFixedSize(260, 50)
@@ -572,13 +1534,13 @@ class AdminDashboard(QMainWindow):
 
     def open_expense_popup(self):
         diag = ExpenseDialog(self)
-        diag.data_updated.connect(lambda: self.refresh_all_dashboard_data(self.filter_combo.currentText()))
+        diag.data_updated.connect(lambda: self.refresh_all_dashboard_data(self.period_dropdown.currentText()))
         diag.exec()
 
     def handle_shop_change(self, index):
         new_id = index + 1
         set_shop_id(new_id)
-        self.refresh_all_dashboard_data(self.filter_combo.currentText())
+        self.refresh_all_dashboard_data(self.period_dropdown.currentText())
         
 
 
@@ -796,7 +1758,7 @@ class AdminDashboard(QMainWindow):
 
     def show_dashboard(self):
         self.stack.setCurrentIndex(0)
-        self.refresh_all_dashboard_data(self.filter_combo.currentText())
+        self.refresh_all_dashboard_data(self.period_dropdown.currentText())
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
