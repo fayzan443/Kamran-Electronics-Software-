@@ -499,7 +499,7 @@ class StaffView(QWidget):
         
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(14)
+        layout.setSpacing(15)
         
         # Header Card
         header = QFrame()
@@ -551,7 +551,12 @@ class StaffView(QWidget):
                   "July", "August", "September", "October", "November", "December"]
         month_combo.addItems(months)
         month_combo.setCurrentIndex(datetime.now().month - 1)
-        month_combo.setStyleSheet(input_style)
+        combo_style = input_style + """
+            QComboBox::drop-down { width: 0px !important; border: none !important; }
+            QComboBox::down-arrow { image: none !important; }
+            QComboBox { padding-right: 10px !important; }
+        """
+        month_combo.setStyleSheet(combo_style)
         layout.addWidget(month_combo)
         
         # Year
@@ -660,7 +665,7 @@ class StaffView(QWidget):
         
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(14)
+        layout.setSpacing(15)
         
         current_adv = QLabel(f"Current advance dues: Rs. {int(staff['advance']):,}")
         current_adv.setStyleSheet("color: #F59E0B; font-size: 14px; font-weight: bold;")
@@ -762,9 +767,14 @@ class StaffView(QWidget):
         content_widget.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(content_widget)
         layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(14)
+        layout.setSpacing(15)
         
-        input_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 10px; padding: 12px 16px; font-size: 13px; min-height: 44px; color: #1E293B; QComboBox::drop-down { border: none; width: 0px; } QComboBox::down-arrow { image: none; width: 0px; height: 0px; }"
+        input_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 10px; padding: 12px 16px; font-size: 13px; min-height: 44px; color: #1E293B;"
+        combo_override = """
+            QComboBox::drop-down { width: 0px !important; border: none !important; }
+            QComboBox::down-arrow { image: none !important; }
+            QComboBox { padding-right: 10px !important; }
+        """
         label_style = "font-size: 12px; font-weight: bold; color: #1E293B; margin-bottom: 4px;"
         
         def create_field(label, placeholder=None, widget_type=QLineEdit):
@@ -774,7 +784,10 @@ class StaffView(QWidget):
             
             w = widget_type()
             if placeholder: w.setPlaceholderText(placeholder)
-            w.setStyleSheet(input_style)
+            if widget_type == QComboBox:
+                w.setStyleSheet(input_style + combo_override)
+            else:
+                w.setStyleSheet(input_style)
             layout.addWidget(w)
             return w
 
@@ -790,7 +803,7 @@ class StaffView(QWidget):
         date_layout = QHBoxLayout()
         date_layout.setSpacing(10)
         
-        combos_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 10px; padding: 8px; font-size: 13px; min-height: 40px; color: #1E293B;"
+        combos_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 10px; padding: 8px; font-size: 13px; min-height: 40px; color: #1E293B;" + combo_override
         
         day_input = QComboBox()
         day_input.addItems([str(i) for i in range(1, 32)])
@@ -892,88 +905,82 @@ class StaffView(QWidget):
     def open_edit_dialog(self):
         staff = self.selected_staff
         dialog = QDialog(self)
-        dialog.setWindowTitle(f"✏️ Edit Staff — {staff['name']}")
-        dialog.setFixedSize(420, 540)
-        dialog.setStyleSheet("background-color: #F8FAFF;")
+        dialog.setWindowTitle("✏️ Edit Staff")
+        dialog.setFixedWidth(420)
+        dialog.setMinimumHeight(600)
+        dialog.setStyleSheet("QDialog { background-color: #FFFFFF; } QLabel { font-size: 12px; font-weight: bold; color: #1E293B; }")
         
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(16)
+        layout.setSpacing(15)
         
-        input_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 10px; padding: 10px 14px; font-size: 13px; min-height: 42px; QComboBox::drop-down { border: none; width: 0px; } QComboBox::down-arrow { image: none; width: 0px; height: 0px; }"
-        label_style = "font-size: 12px; font-weight: bold; color: #1E293B;"
+        line_edit_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px; font-size: 13px; min-height: 40px; color: #1E293B;"
+        combo_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 8px; font-size: 13px; min-height: 40px; color: #1E293B;" + """
+            QComboBox::drop-down { width: 0px !important; border: none !important; }
+            QComboBox::down-arrow { image: none !important; }
+            QComboBox { padding-right: 10px !important; }
+        """
         
-        def create_input(label, value, widget_type=QLineEdit):
-            layout.addWidget(QLabel(label))
-            layout.itemAt(layout.count()-1).widget().setStyleSheet(label_style)
-            w = widget_type()
-            w.setStyleSheet(input_style)
-            if widget_type == QLineEdit:
-                w.setText(str(value))
-            layout.addWidget(w)
-            return w
-
-        name_input = create_input("Full Name", staff['name'])
-        role_input = create_input("Role", None, QComboBox)
+        layout.addWidget(QLabel("Full Name"))
+        name_input = QLineEdit()
+        name_input.setText(staff['name'])
+        name_input.setStyleSheet(line_edit_style)
+        layout.addWidget(name_input)
+        
+        layout.addWidget(QLabel("Role"))
+        role_input = QComboBox()
         role_input.setEditable(True)
-        role_input.lineEdit().setPlaceholderText("Select or type custom role...")
         role_input.addItems(["Technician", "Cashier", "Manager", "Helper", "Cleaner", "Guard", "Other"])
         role_input.setCurrentText(staff['role'])
+        role_input.setStyleSheet(combo_style)
+        layout.addWidget(role_input)
         
-        phone_input = create_input("Phone Number", staff['phone'])
-        salary_input = create_input("Monthly Salary (Rs.)", staff['salary'])
-        salary_input.setValidator(QDoubleValidator(0.0, 9999999.0, 2))
+        layout.addWidget(QLabel("Phone Number"))
+        phone_input = QLineEdit()
+        phone_input.setText(staff['phone'])
+        phone_input.setStyleSheet(line_edit_style)
+        layout.addWidget(phone_input)
         
-        # Join Date Dropdowns for Edit
+        layout.addWidget(QLabel("Monthly Salary (Rs.)"))
+        salary_input = QLineEdit()
+        salary_input.setText(str(int(staff['salary'])))
+        salary_input.setStyleSheet(line_edit_style)
+        layout.addWidget(salary_input)
+        
         layout.addWidget(QLabel("Join Date"))
-        layout.itemAt(layout.count()-1).widget().setStyleSheet(label_style)
-        edit_date_layout = QHBoxLayout()
-        edit_date_layout.setSpacing(10)
+        date_layout = QHBoxLayout()
         
-        combos_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 10px; padding: 8px; font-size: 13px; min-height: 40px; color: #1E293B;"
+        day_input = QComboBox()
+        day_input.addItems([str(i) for i in range(1, 32)])
+        day_input.setStyleSheet(combo_style)
         
-        day_edit = QComboBox()
-        day_edit.addItems([str(i) for i in range(1, 32)])
-        day_edit.setStyleSheet(combos_style)
-        
-        month_edit = QComboBox()
+        month_input = QComboBox()
         month_names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-        month_edit.addItems(month_names)
-        month_edit.setStyleSheet(combos_style)
+        month_input.addItems(month_names)
+        month_input.setStyleSheet(combo_style)
         
-        year_edit = QComboBox()
-        year_edit.addItems([str(i) for i in range(2020, 2031)])
-        year_edit.setStyleSheet(combos_style)
+        year_input = QComboBox()
+        year_input.addItems([str(i) for i in range(2020, 2031)])
+        year_input.setStyleSheet(combo_style)
         
-        # Pre-fill from staff data
-        j_date = staff['join_date'] # QDate or datetime
+        j_date = staff['join_date']
         if hasattr(j_date, 'year'):
-            day_edit.setCurrentText(str(j_date.day))
-            month_edit.setCurrentIndex(j_date.month - 1)
-            year_edit.setCurrentText(str(j_date.year))
-        
-        edit_date_layout.addWidget(day_edit, 1)
-        edit_date_layout.addWidget(month_edit, 2)
-        edit_date_layout.addWidget(year_edit, 1)
-        layout.addLayout(edit_date_layout)
-        
-        status_input = create_input("Status", None, QComboBox)
-        status_input.addItems(["Active", "On Leave", "Resigned"])
-        status_input.setCurrentText(staff['status'])
-        
-        error_lbl = QLabel("")
-        error_lbl.setStyleSheet("font-size: 11px; color: #EF4444;")
-        error_lbl.hide()
-        layout.addWidget(error_lbl)
+            day_input.setCurrentText(str(j_date.day))
+            month_input.setCurrentIndex(j_date.month - 1)
+            year_input.setCurrentText(str(j_date.year))
+            
+        date_layout.addWidget(day_input)
+        date_layout.addWidget(month_input)
+        date_layout.addWidget(year_input)
+        layout.addLayout(date_layout)
         
         layout.addStretch()
         
-        # Buttons
-        save_btn = QPushButton("💾 Save Changes")
+        save_btn = QPushButton("Save Changes")
         save_btn.setStyleSheet("""
             QPushButton {
-                 background-color: #1B4D89; color: white; border-radius: 10px;
-                 padding: 12px; font-weight: 700;
+                background-color: #1B4D89; color: white; border-radius: 10px; 
+                padding: 12px; font-weight: 700; min-height: 44px;
             }
             QPushButton:hover { background-color: #153A68; }
         """)
@@ -981,37 +988,38 @@ class StaffView(QWidget):
         cancel_btn = QPushButton("Cancel")
         cancel_btn.setStyleSheet("""
             QPushButton {
-                background-color: #F0F4F8; color: #64748B; border-radius: 10px;
-                padding: 12px; font-weight: 600;
+                background-color: #F0F4F8; color: #64748B; border-radius: 10px; 
+                padding: 10px; min-height: 40px;
             }
-            QPushButton:hover { background-color: #E2E8F0; }
         """)
         cancel_btn.clicked.connect(dialog.reject)
         
         def do_save():
             name = name_input.text().strip()
             phone = phone_input.text().strip()
-            role = role_input.currentText() or "Other"
-            salary = float(salary_input.text() or 0)
-            counter = ""
-            status = status_input.currentText()
-            
             if not name or not phone:
-                error_lbl.setText("Name and Phone are required!")
-                error_lbl.show()
+                QMessageBox.warning(dialog, "Error", "Name and Phone cannot be empty.")
                 return
-                
+            
+            role = role_input.currentText() or "Other"
             try:
-                # Construct join date from combos
-                m_num = month_edit.currentIndex() + 1
-                d_val = int(day_edit.currentText())
-                join_date = f"{year_edit.currentText()}-{m_num:02d}-{d_val:02d}"
+                salary = float(salary_input.text() or 0)
+            except ValueError:
+                salary = 0.0
                 
+            m_num = month_input.currentIndex() + 1
+            d_val = int(day_input.currentText())
+            join_date = f"{year_input.currentText()}-{m_num:02d}-{d_val:02d}"
+            
+            counter = ""
+            status = staff['status']
+            
+            try:
                 update_staff(staff['id'], name, role, join_date, phone, counter, salary, status)
                 QMessageBox.information(dialog, "Success", "Staff updated successfully!")
                 dialog.accept()
                 self.load_staff_data()
-                # Refresh Detail Panel
+                
                 full_data = get_staff_by_id(staff['id'])
                 if full_data:
                     self.selected_staff = {
@@ -1027,10 +1035,10 @@ class StaffView(QWidget):
                     }
                     self.show_staff_detail()
             except Exception as e:
-                error_lbl.setText(f"Error: {str(e)}")
-                error_lbl.show()
-
+                QMessageBox.warning(dialog, "Error", str(e))
+                
         save_btn.clicked.connect(do_save)
+        layout.addSpacing(15)
         layout.addWidget(save_btn)
         layout.addWidget(cancel_btn)
         
@@ -1043,7 +1051,8 @@ class StaffView(QWidget):
         dialog.setStyleSheet("background-color: #F8FAFF;")
         
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(15)
         
         table = QTableWidget()
         cols = ["Month", "Year", "Base Salary", "Advance Ded.", "Net Paid", "Notes"]
@@ -1116,7 +1125,7 @@ class StaffView(QWidget):
         
         layout = QVBoxLayout(dialog)
         layout.setContentsMargins(25, 25, 25, 25)
-        layout.setSpacing(12)
+        layout.setSpacing(15)
         
         curr_lbl = QLabel(f"Current Salary: Rs. {int(staff['salary']):,}")
         curr_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #1E293B; margin-bottom: 5px;")
@@ -1207,12 +1216,12 @@ class StaffView(QWidget):
 
         dialog = QDialog(self)
         dialog.setWindowTitle("💸 Pay All Active Staff")
-        dialog.setFixedSize(420, 320)
+        dialog.setFixedSize(480, 400)
         dialog.setStyleSheet("background-color: #F8FAFF;")
         
         layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(25, 25, 25, 25)
+        layout.setSpacing(15)
         
         table = QTableWidget()
         cols = ["Name", "Salary", "Advance", "Net"]
@@ -1221,8 +1230,22 @@ class StaffView(QWidget):
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.setStyleSheet("background-color: white; border: 1px solid #E2E8F0; border-radius: 8px;")
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.setStyleSheet("""
+            QTableWidget {
+                background-color: white; 
+                border: 1px solid #E2E8F0; 
+                border-radius: 8px;
+            }
+            QHeaderView::section {
+                background-color: #F8FAFF;
+                border: none;
+                border-bottom: 1px solid #E2E8F0;
+                font-weight: bold;
+                padding: 8px 4px;
+            }
+        """)
+        table.horizontalHeader().setMinimumSectionSize(100)
+        table.horizontalHeader().setStretchLastSection(True)
         
         total_payout = 0
         table.setRowCount(len(active_staff))
@@ -1239,13 +1262,15 @@ class StaffView(QWidget):
             table.setItem(i, 2, QTableWidgetItem(f"Rs. {int(adv):,}"))
             table.setItem(i, 3, QTableWidgetItem(f"Rs. {int(net):,}"))
             
-            for j in range(4):
+            table.item(i, 0).setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            for j in range(1, 4):
                 table.item(i, j).setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         
         layout.addWidget(table)
         
         total_lbl = QLabel(f"Total Payout: Rs. {int(total_payout):,}")
-        total_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #1B4D89; margin: 5px 0;")
+        total_lbl.setStyleSheet("font-size: 16px; font-weight: bold; color: #1B4D89; margin-top: 15px; margin-bottom: 5px; padding: 5px 10px;")
+        total_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(total_lbl)
         
         # Buttons

@@ -14,7 +14,7 @@ class AdminSettingsView(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setStyleSheet(STYLE_SHEET)
+        self.setStyleSheet(STYLE_SHEET + " AdminSettingsView { background-color: #F0F4F8; }")
         
         # Main Layout
         self.main_layout = QVBoxLayout(self)
@@ -27,11 +27,16 @@ class AdminSettingsView(QWidget):
         self.back_btn = QPushButton("⬅ BACK")
         self.back_btn.setFixedSize(100, 45)
         self.back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.back_btn.setStyleSheet("")
+        self.back_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FFFFFF; color: #1E293B; border: 1px solid #E2E8F0; border-radius: 8px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #F8FAFF; }
+        """)
         self.back_btn.clicked.connect(self.back_clicked.emit)
         
         title_label = QLabel("🛡️ System Administration & Settings")
-        title_label.setStyleSheet("color: #60A5FA; font-size: 28px; font-weight: 800; font-family: 'Segoe UI';")
+        title_label.setStyleSheet("color: #1E293B; font-size: 24px; font-weight: 800; font-family: 'Segoe UI';")
         
         header_layout.addWidget(self.back_btn)
         header_layout.addSpacing(20)
@@ -46,7 +51,11 @@ class AdminSettingsView(QWidget):
         content_layout.setContentsMargins(0, 0, 0, 0)
         
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("")
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane { border: 1px solid #E2E8F0; background: #FFFFFF; border-radius: 8px; }
+            QTabBar::tab { background: #F0F4F8; color: #64748B; padding: 12px 24px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-weight: bold; font-size: 13px; }
+            QTabBar::tab:selected { background: #FFFFFF; color: #1B4D89; border: 1px solid #E2E8F0; border-bottom: none; }
+        """)
         
         self.setup_general_tab()
         self.setup_security_tab()
@@ -62,7 +71,12 @@ class AdminSettingsView(QWidget):
         self.save_btn = QPushButton("💾 APPLY CHANGES & REFRESH SYSTEM")
         self.save_btn.setFixedSize(320, 55)
         self.save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.save_btn.setStyleSheet("")
+        self.save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1B4D89; color: white; border-radius: 10px; font-weight: 700; font-size: 14px;
+            }
+            QPushButton:hover { background-color: #153A68; }
+        """)
         self.save_btn.clicked.connect(self.save_all_settings)
         
         footer_layout.addWidget(self.save_btn)
@@ -72,6 +86,7 @@ class AdminSettingsView(QWidget):
 
     def setup_general_tab(self):
         tab = QWidget()
+        tab.setStyleSheet("background-color: #FFFFFF;")
         layout = QFormLayout(tab)
         layout.setContentsMargins(50, 50, 50, 50)
         layout.setSpacing(25)
@@ -79,8 +94,9 @@ class AdminSettingsView(QWidget):
         self.shop_name = QLineEdit()
         self.shop_address = QLineEdit()
         
+        input_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; font-size: 13px; color: #1E293B;"
         for field in [self.shop_name, self.shop_address]:
-            field.setStyleSheet("")
+            field.setStyleSheet(input_style)
             
         layout.addRow(self.create_label("Shop Title Display:"), self.shop_name)
         layout.addRow(self.create_label("Business Address:"), self.shop_address)
@@ -88,19 +104,20 @@ class AdminSettingsView(QWidget):
 
     def setup_security_tab(self):
         tab = QWidget()
+        tab.setStyleSheet("background-color: #FFFFFF;")
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(50, 50, 50, 50)
-        layout.setSpacing(25)
+        layout.setSpacing(35)
         
         token_frame = QFrame()
-        token_frame.setStyleSheet(" border-radius: 15px; padding: 20px;")
+        token_frame.setStyleSheet("background-color: #F8FAFF; border: 1px solid #E2E8F0; border-radius: 12px; padding: 20px;")
         token_layout = QVBoxLayout(token_frame)
         
         token_title = QLabel("🔑 MASTER RECOVERY TOKEN")
-        token_title.setStyleSheet("font-weight: bold; color: #60A5FA; font-size: 16px;")
+        token_title.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 16px; border: none; background: transparent;")
         
         desc = QLabel("Keep this token safe. It is required for account recovery if security questions are disabled.")
-        desc.setStyleSheet("color: #636e72; font-size: 12px;")
+        desc.setStyleSheet("color: #64748B; font-size: 12px; border: none; background: transparent;")
         
         token_h = QHBoxLayout()
         self.token_display = QLineEdit()
@@ -109,12 +126,12 @@ class AdminSettingsView(QWidget):
         self.token_display.setStyleSheet("""
             QLineEdit {
                 padding: 15px;
-                background-color: #fff;
-                border: 2px dashed #1b4d89;
-                border-radius: 10px;
+                background-color: #FFFFFF;
+                border: 2px dashed #1B4D89;
+                border-radius: 8px;
                 font-weight: bold;
                 font-size: 18px;
-                color: #2d3436;
+                color: #1E293B;
                 letter-spacing: 2px;
             }
         """)
@@ -122,7 +139,12 @@ class AdminSettingsView(QWidget):
         self.gen_btn = QPushButton("GENERATE NEW KEY")
         self.gen_btn.setFixedSize(180, 52)
         self.gen_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.gen_btn.setStyleSheet("")
+        self.gen_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1B4D89; color: white; border-radius: 8px; font-weight: 700; font-size: 12px; border: none;
+            }
+            QPushButton:hover { background-color: #153A68; }
+        """)
         self.gen_btn.clicked.connect(self.generate_new_key)
         
         token_h.addWidget(self.token_display)
@@ -141,9 +163,10 @@ class AdminSettingsView(QWidget):
         self.cur_pass = QLineEdit()
         self.new_pass = QLineEdit()
         
+        input_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; font-size: 13px; color: #1E293B;"
         for f in [self.cur_pass, self.new_pass]:
             f.setEchoMode(QLineEdit.EchoMode.Password)
-            f.setStyleSheet("")
+            f.setStyleSheet(input_style)
             
         pass_form.addRow(self.create_label("Current Admin Password:"), self.cur_pass)
         pass_form.addRow(self.create_label("New Master Password:"), self.new_pass)
@@ -155,17 +178,21 @@ class AdminSettingsView(QWidget):
 
     def setup_whatsapp_tab(self):
         tab = QWidget()
+        tab.setStyleSheet("background-color: #FFFFFF;")
         layout = QFormLayout(tab)
         layout.setContentsMargins(50, 50, 50, 50)
         layout.setSpacing(25)
         
+        input_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; font-size: 13px; color: #1E293B;"
+        combo_style = "background-color: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; font-size: 13px; color: #1E293B; QTimeEdit::up-button { width: 0px; height: 0px; border: none; } QTimeEdit::down-button { width: 0px; height: 0px; border: none; }"
+        
         self.wa_num = QLineEdit()
         self.wa_num.setPlaceholderText("+92 300 0000000")
-        self.wa_num.setStyleSheet("")
+        self.wa_num.setStyleSheet(input_style)
         
         self.report_time = QTimeEdit()
         self.report_time.setFixedHeight(50)
-        self.report_time.setStyleSheet("")
+        self.report_time.setStyleSheet(combo_style)
         
         layout.addRow(self.create_label("Admin WhatsApp Number:"), self.wa_num)
         layout.addRow(self.create_label("Daily Auto-Report Time:"), self.report_time)
@@ -173,7 +200,7 @@ class AdminSettingsView(QWidget):
 
     def create_label(self, text):
         lbl = QLabel(text)
-        lbl.setStyleSheet("font-weight: bold; color: #2d3436; font-size: 14px;")
+        lbl.setStyleSheet("font-weight: bold; color: #1E293B; font-size: 14px; background: transparent;")
         return lbl
 
     def load_current_settings(self):
